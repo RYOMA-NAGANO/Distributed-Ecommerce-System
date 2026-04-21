@@ -2,7 +2,7 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import reverse_lazy
 from django.views.generic.edit import CreateView
 
-from .forms import UPSAuthenticationForm, UPSUserCreationForm
+from .forms import UPSAuthenticationForm, UserSignupForm
 
 
 class UPSLoginView(LoginView):
@@ -15,6 +15,6 @@ class UPSLogoutView(LogoutView):
 
 
 class SignupView(CreateView):
-    form_class = UPSUserCreationForm
+    form_class = UserSignupForm
     template_name = "accounts/signup.html"
     success_url = reverse_lazy("login")

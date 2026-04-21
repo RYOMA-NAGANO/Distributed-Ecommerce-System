@@ -1,12 +1,13 @@
+from django import forms
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
+from django.contrib.auth.models import User
 
-from .models import UPSUser
+class UserSignupForm(UserCreationForm):
+    email = forms.EmailField(required=False)
 
-
-class UPSUserCreationForm(UserCreationForm):
     class Meta(UserCreationForm.Meta):
-        model = UPSUser
-        fields = ("username", "email", "amazon_account_name")
+        model = User
+        fields = ("username", "email")
 
 
 class UPSAuthenticationForm(AuthenticationForm):
