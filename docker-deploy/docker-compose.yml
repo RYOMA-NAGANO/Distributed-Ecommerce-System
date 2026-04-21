@@ -21,7 +21,7 @@ services:
       - apparmor:unconfined
   web-init:
     build: ./web-app
-    command: /code/initserver.sh
+    command: bash /code/initserver.sh
     volumes:
       - ./web-app:/code
     depends_on:
@@ -42,6 +42,23 @@ services:
         condition: service_completed_successfully
     security_opt:
       - apparmor:unconfined
+  ups-daemon:
+    build: ./web-app
+    command: bash /code/startdaemon.sh
+    volumes:
+      - ./web-app:/code
+    environment:
+      - WORLD_HOST=${WORLD_HOST:-host.docker.internal}
+      - WORLD_PORT=${WORLD_PORT:-12345}
+      - UPS_DAEMON_TIMEOUT=${UPS_DAEMON_TIMEOUT:-5}
+      - WORLD_RETRY_SECONDS=${WORLD_RETRY_SECONDS:-5}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      web-init:
+        condition: service_completed_successfully
+    security_opt:
+      - apparmor:unconfined
   nginx:
     image: nginx:latest
     ports:
@@ -50,6 +67,7 @@ services:
       - ./nginx/config:/etc/nginx/conf.d
     depends_on:
       - web
+      - ups-daemon
     security_opt:
       - apparmor:unconfined
 volumes:

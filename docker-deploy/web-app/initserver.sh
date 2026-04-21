@@ -1,12 +1,9 @@
 #!/bin/bash
+set -e
 
-res=1
-while [ "$res" != "0" ]
+python3 manage.py makemigrations --noinput
+
+until python3 manage.py migrate --noinput
 do
     sleep 3
-    python3 manage.py migrate
-    res="$?"
 done
-
-python3 manage.py makemigrations
-python3 manage.py migrate
