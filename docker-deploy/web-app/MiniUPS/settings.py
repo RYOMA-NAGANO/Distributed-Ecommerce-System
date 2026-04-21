@@ -90,3 +90,20 @@ WORLD_ID = os.getenv("WORLD_ID", "")
 UPS_TRUCKS = os.getenv("UPS_TRUCKS", '[{"id": 1, "x": 1, "y": 1}, {"id": 2, "x": 5, "y": 5}]')
 WORLD_RETRY_SECONDS = int(os.getenv("WORLD_RETRY_SECONDS", "5"))
 OUTBOUND_RETRY_SECONDS = int(os.getenv("OUTBOUND_RETRY_SECONDS", "5"))
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+
+# email settings
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+
+EMAIL_HOST = 'smtp.qq.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+
+EMAIL_HOST_USER = '1228280263@qq.com'
+EMAIL_HOST_PASSWORD = 'qnsrhbheepbabagc'
+
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
