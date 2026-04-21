@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}MiniUPS{% endblock %}
+
+{% block content %}
+<h1>MiniUPS</h1>
+<p>This UPS project scaffold is ready for the next implementation step.</p>
+<ul>
+  <li><a href="{% url 'my-shipments' %}">My shipments</a></li>
+  <li><a href="{% url 'login' %}">Login</a></li>
+  <li><a href="{% url 'signup' %}">Create account</a></li>
+</ul>
+{% endblock %}
