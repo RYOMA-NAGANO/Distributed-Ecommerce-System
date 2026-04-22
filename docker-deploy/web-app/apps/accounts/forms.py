@@ -1,5 +1,5 @@
 from django import forms
-from django.contrib.auth.forms import AuthenticationForm
+from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 
@@ -68,3 +68,21 @@ class UPSAuthenticationForm(AuthenticationForm):
         )
         self.fields["password"].label = "Password"
         self.fields["password"].widget.attrs.update({"autocomplete": "current-password"})
+
+
+class UserProfileForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ("first_name", "last_name")
+        labels = {
+            "first_name": "First name",
+            "last_name": "Last name",
+        }
+
+
+class UPSPasswordChangeForm(PasswordChangeForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["old_password"].label = "Current password"
+        self.fields["new_password1"].label = "New password"
+        self.fields["new_password2"].label = "Confirm new password"

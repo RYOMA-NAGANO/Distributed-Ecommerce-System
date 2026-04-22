@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import DestinationUpdate, Package, PositionUpdate, Truck, Warehouse
+from .models import DestinationUpdate, Package, PositionUpdate, TrackedShipment, Truck, Warehouse
 
 
 @admin.register(Truck)
@@ -42,3 +42,9 @@ class PositionUpdateAdmin(admin.ModelAdmin):
 @admin.register(DestinationUpdate)
 class DestinationUpdateAdmin(admin.ModelAdmin):
     list_display = ("id", "shipment", "x", "y", "update_time")
+
+
+@admin.register(TrackedShipment)
+class TrackedShipmentAdmin(admin.ModelAdmin):
+    list_display = ("user", "package", "last_searched_at")
+    search_fields = ("user__username", "package__shipment_id", "package__amazon_order_id")

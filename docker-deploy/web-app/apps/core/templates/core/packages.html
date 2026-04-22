@@ -15,7 +15,7 @@
   <div style="padding:1rem 1.25rem 1.25rem;">
     <form class="ups-search" method="get" action="{% url 'my-packages' %}">
       <input type="hidden" name="tab" value="{{ tab }}">
-      <input type="text" name="q" value="{{ search_q }}" placeholder="Filter by shipment id" aria-label="Shipment id">
+      <input type="text" name="q" value="{{ search_q }}" placeholder="Search by shipment id or order id" aria-label="Shipment or order id">
       <button type="submit" class="ups-btn ups-btn-primary">Search</button>
     </form>
 
@@ -44,8 +44,10 @@
           </article>
         {% endfor %}
       </div>
+    {% elif search_q %}
+      <p class="ups-muted">No shipments matched your search.</p>
     {% else %}
-      <p class="ups-muted">No shipments yet. In AUIP, Amazon creates shipments via <code>POST /shipments</code>; your account will see orders once they are associated with your UPS username.</p>
+      <p class="ups-muted">Search for a shipment id or order id. Shipments you claim are shown here.</p>
     {% endif %}
   </div>
 </div>

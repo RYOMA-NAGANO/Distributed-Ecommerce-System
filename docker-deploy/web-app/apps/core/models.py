@@ -109,3 +109,29 @@ class Warehouse(models.Model):
 
     def __str__(self):
         return f"Warehouse {self.warehouse_id}"
+
+
+class TrackedShipment(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="tracked_shipments",
+    )
+    package = models.ForeignKey(
+        Package,
+        on_delete=models.CASCADE,
+        related_name="tracked_by_users",
+    )
+    last_searched_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "tracked_shipments"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "package"],
+                name="unique_tracked_shipment_per_user",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user_id}:{self.package_id}"

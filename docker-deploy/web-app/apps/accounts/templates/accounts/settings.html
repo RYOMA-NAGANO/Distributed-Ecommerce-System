@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Settings · MiniUPS{% endblock %}
+
+{% block content %}
+<div class="ups-card">
+  <h1 style="margin-top:0;">Account settings</h1>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="ups-alert {% if message.tags == 'success' %}ups-alert-success{% else %}ups-alert-error{% endif %}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;">
+    <section class="ups-card" style="padding:1rem;">
+      <h2 style="margin-top:0;font-size:1.05rem;">Profile</h2>
+      <form method="post" class="ups-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="profile">
+        {{ profile_form.as_p }}
+        <button type="submit" class="ups-btn ups-btn-primary">Save profile</button>
+      </form>
+    </section>
+
+    <section class="ups-card" style="padding:1rem;">
+      <h2 style="margin-top:0;font-size:1.05rem;">Password</h2>
+      <form method="post" class="ups-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="password">
+        {{ password_form.as_p }}
+        <button type="submit" class="ups-btn ups-btn-primary">Change password</button>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

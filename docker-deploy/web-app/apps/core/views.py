@@ -4,7 +4,9 @@ from django.shortcuts import render
 from django.views.generic import ListView
 
 from . import auip_states as S
-from .models import Package
+from .models import Package, TrackedShipment
+
+INTEROP_OWNER = "_amazon_interop"
 
 
 def home(request):
@@ -17,19 +19,37 @@ class PackageListView(LoginRequiredMixin, ListView):
     context_object_name = "packages"
 
     def get_queryset(self):
-        # AUIP integration view: search/list shipments globally by identifiers.
+        q = (self.request.GET.get("q") or "").strip()
         qs = Package.objects.select_related("truck", "user")
         tab = (self.request.GET.get("tab") or "all").lower()
+
+        if q:
+            qs = qs.filter(
+                Q(shipment_id__icontains=q) | Q(amazon_order_id__icontains=q)
+            )
+            # First searcher claims interop-owned shipments. Other users can view
+            # search results but cannot persist them into their own shipment list.
+            for package in qs:
+                if package.user_id == self.request.user.id:
+                    TrackedShipment.objects.update_or_create(
+                        user=self.request.user,
+                        package=package,
+                    )
+                elif package.user and package.user.username == INTEROP_OWNER:
+                    package.user = self.request.user
+                    package.save(update_fields=["user"])
+                    TrackedShipment.objects.update_or_create(
+                        user=self.request.user,
+                        package=package,
+                    )
+        else:
+            qs = qs.filter(user=self.request.user)
+
         if tab == "active":
             qs = qs.exclude(status__in=[S.DELIVERED, S.CANCELED, S.DELIVERY_FAILED])
         elif tab == "delivered":
             qs = qs.filter(status=S.DELIVERED)
 
-        q = (self.request.GET.get("q") or "").strip()
-        if q:
-            qs = qs.filter(
-                Q(shipment_id__icontains=q) | Q(amazon_order_id__icontains=q)
-            )
         return qs.order_by("shipment_id")
 
     def get_context_data(self, **kwargs):
