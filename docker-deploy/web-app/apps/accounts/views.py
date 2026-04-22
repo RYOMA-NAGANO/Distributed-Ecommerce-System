@@ -1,3 +1,4 @@
+from django.contrib import messages
 from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import reverse_lazy
 from django.views.generic.edit import CreateView
@@ -18,3 +19,7 @@ class SignupView(CreateView):
     form_class = UserSignupForm
     template_name = "accounts/signup.html"
     success_url = reverse_lazy("login")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Account created. Log in with your email and password.")
+        return super().form_valid(form)

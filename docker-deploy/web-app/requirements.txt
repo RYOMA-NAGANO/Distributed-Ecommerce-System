@@ -3,3 +3,4 @@ psycopg2-binary
 protobuf
 grpcio-tools
 requests
+djangorestframework

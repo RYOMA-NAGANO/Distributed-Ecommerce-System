@@ -1,12 +1,34 @@
 {% extends "base.html" %}
 
-{% block title %}Sign Up{% endblock %}
+{% block title %}Sign up · MiniUPS{% endblock %}
 
 {% block content %}
-<h1>Create UPS Account</h1>
-<form method="post">
-  {% csrf_token %}
-  {{ form.as_p }}
-  <button type="submit">Sign up</button>
-</form>
+<div class="ups-card" style="max-width:440px;margin:0 auto;">
+  <h1 style="margin-top:0;color:var(--ups-brown);">Create account</h1>
+  <p class="ups-muted">Email and password only. <strong>No password strength rules.</strong> After sign up, log in with your <strong>email</strong>.</p>
+
+  {% if form.non_field_errors %}
+    <div class="ups-alert ups-alert-error">{{ form.non_field_errors }}</div>
+  {% endif %}
+
+  <form method="post" class="ups-form">
+    {% csrf_token %}
+    <label for="id_email">{{ form.email.label }}</label>
+    {{ form.email }}
+    {{ form.email.errors }}
+
+    <label for="id_password1">{{ form.password1.label }}</label>
+    {{ form.password1 }}
+    {{ form.password1.errors }}
+
+    <label for="id_password2">{{ form.password2.label }}</label>
+    {{ form.password2 }}
+    {{ form.password2.errors }}
+
+    <div class="ups-actions" style="margin-top:1.25rem;">
+      <button type="submit" class="ups-btn ups-btn-primary">Sign up</button>
+      <a class="ups-btn ups-btn-primary" href="{% url 'login' %}" style="background:var(--ups-white);color:var(--ups-brown)!important;border:2px solid var(--ups-gold);">Already have an account</a>
+    </div>
+  </form>
+</div>
 {% endblock %}

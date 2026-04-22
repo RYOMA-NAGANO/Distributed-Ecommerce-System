@@ -1,21 +1,39 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}MiniUPS{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'ups.css' %}">
   </head>
   <body>
-    <nav>
-      <a href="{% url 'home' %}">Home</a>
-      <a href="{% url 'my-shipments' %}">Shipments</a>
-      {% if user.is_authenticated %}
-        <a href="{% url 'logout' %}">Logout</a>
-      {% else %}
-        <a href="{% url 'login' %}">Login</a>
-      {% endif %}
-    </nav>
-    <hr>
-    {% block content %}{% endblock %}
+    <div class="ups-top-strip">Course demo · Not the official UPS website</div>
+    <header class="ups-header">
+      <div class="ups-header-inner">
+        <a class="ups-logo" href="{% url 'home' %}">
+          <span class="ups-logo-mark">UPS</span>
+          <span>MiniUPS</span>
+        </a>
+        <nav class="ups-nav">
+          <a href="{% url 'home' %}">Home</a>
+          {% if user.is_authenticated %}
+            <a href="{% url 'my-packages' %}">My shipments</a>
+          {% endif %}
+          {% if user.is_authenticated %}
+            <form method="post" action="{% url 'logout' %}" class="ups-nav-logout">
+              {% csrf_token %}
+              <button type="submit" class="ups-btn ups-btn-primary">Log out</button>
+            </form>
+          {% else %}
+            <a class="ups-btn ups-btn-ghost" href="{% url 'login' %}">Log in</a>
+            <a class="ups-btn ups-btn-primary" href="{% url 'signup' %}">Sign up</a>
+          {% endif %}
+        </nav>
+      </div>
+    </header>
+    <main class="ups-main">
+      {% block content %}{% endblock %}
+    </main>
   </body>
 </html>

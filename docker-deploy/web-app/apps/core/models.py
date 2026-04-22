@@ -1,7 +1,6 @@
+from django.conf import settings
 from django.db import models
-from django.core.exceptions import ValidationError
 
-from ..accounts.models import User
 
 class Truck(models.Model):
     class TruckStatus(models.TextChoices):
@@ -25,39 +24,41 @@ class Truck(models.Model):
 
 
 class Package(models.Model):
-    class Status(models.TextChoices):
-        CREATED = "CREATED"
-        LOADING = "LOADING"
-        DELIVERING = "DELIVERING"
-        DELIVERED = "DELIVERED"
+    shipment_id = models.CharField(max_length=100, primary_key=True)
 
-    shipment_id = models.CharField(
-        max_length=100,
-        primary_key=True
-    )
+    world_id = models.BigIntegerField(default=0, db_index=True)
+    amazon_order_id = models.CharField(max_length=120, blank=True, default="")
 
     truck = models.ForeignKey(
         Truck,
         on_delete=models.SET_NULL,
         db_column="truck_id",
         null=True,
-        blank=True
+        blank=True,
     )
 
     user = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        db_column="user_id"
+        db_column="user_id",
     )
 
     dest_x = models.IntegerField()
     dest_y = models.IntegerField()
 
-    status = models.CharField(
-        max_length=20,
-        choices=Status.choices,
-        default=Status.CREATED
-    )
+    warehouse_id = models.IntegerField(default=0)
+    warehouse_x = models.IntegerField(default=0)
+    warehouse_y = models.IntegerField(default=0)
+
+    items = models.JSONField(null=True, blank=True)
+
+    world_package_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+
+    pickup_seqnum = models.BigIntegerField(null=True, blank=True, db_index=True)
+    delivery_seqnum = models.BigIntegerField(null=True, blank=True, db_index=True)
+
+    # AUIP / §2.7 lifecycle strings (created, truck_en_route, …)
+    status = models.CharField(max_length=32, default="created")
 
     class Meta:
         db_table = "packages"
@@ -65,12 +66,13 @@ class Package(models.Model):
     def __str__(self):
         return self.shipment_id
 
+
 class PositionUpdate(models.Model):
     shipment = models.ForeignKey(
         Package,
         on_delete=models.CASCADE,
         db_column="shipment_id",
-        related_name="position_updates"
+        related_name="position_updates",
     )
 
     x = models.IntegerField()
@@ -80,12 +82,13 @@ class PositionUpdate(models.Model):
     class Meta:
         db_table = "position_updates"
 
+
 class DestinationUpdate(models.Model):
     shipment = models.ForeignKey(
         Package,
         on_delete=models.CASCADE,
         db_column="shipment_id",
-        related_name="destination_updates"
+        related_name="destination_updates",
     )
 
     x = models.IntegerField()
@@ -94,6 +97,7 @@ class DestinationUpdate(models.Model):
 
     class Meta:
         db_table = "destination_updates"
+
 
 class Warehouse(models.Model):
     warehouse_id = models.IntegerField(primary_key=True)

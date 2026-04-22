@@ -6,5 +6,5 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("", include("apps.core.urls")),
     path("accounts/", include("apps.accounts.urls")),
-    path("shipments/", include("apps.shipments.urls")),
+    path("", include("apps.interop.auip_urls")),
 ]

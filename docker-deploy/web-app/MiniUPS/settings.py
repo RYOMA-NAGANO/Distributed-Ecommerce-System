@@ -15,9 +15,9 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "rest_framework",
     "apps.core",
     "apps.accounts",
-    "apps.shipments",
     "apps.interop",
 ]
 
@@ -62,11 +62,12 @@ DATABASES = {
     }
 }
 
-AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
-    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
-    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+# Lab / dev: no password complexity validators (any password allowed).
+AUTH_PASSWORD_VALIDATORS = []
+
+AUTHENTICATION_BACKENDS = [
+    "apps.accounts.backends.EmailOrUsernameBackend",
+    "django.contrib.auth.backends.ModelBackend",
 ]
 
 LANGUAGE_CODE = "en-us"
@@ -76,14 +77,16 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"]
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "auth.User"
-LOGIN_REDIRECT_URL = "my-shipments"
+LOGIN_REDIRECT_URL = "my-packages"
 LOGOUT_REDIRECT_URL = "home"
 
 INTEROP_SHARED_SECRET = os.getenv("INTEROP_SHARED_SECRET", "mini-ups-shared-secret")
 AMAZON_BASE_URL = os.getenv("AMAZON_BASE_URL", "").rstrip("/")
+AMAZON_INTEROP_SECRET = os.getenv("AMAZON_INTEROP_SECRET", "").strip()
 WORLD_HOST = os.getenv("WORLD_HOST", "host.docker.internal")
 WORLD_PORT = int(os.getenv("WORLD_PORT", "12345"))
 WORLD_ID = os.getenv("WORLD_ID", "")

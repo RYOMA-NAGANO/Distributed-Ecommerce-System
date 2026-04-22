@@ -1,13 +1,35 @@
 {% extends "base.html" %}
 
-{% block title %}MiniUPS{% endblock %}
+{% block title %}MiniUPS · Home{% endblock %}
 
 {% block content %}
-<h1>MiniUPS</h1>
-<p>This UPS project scaffold is ready for the next implementation step.</p>
-<ul>
-  <li><a href="{% url 'my-shipments' %}">My shipments</a></li>
-  <li><a href="{% url 'login' %}">Login</a></li>
-  <li><a href="{% url 'signup' %}">Create account</a></li>
-</ul>
+<section class="ups-hero">
+  <div>
+    <h1>Ship, track, and lab integration</h1>
+    <p>
+      MiniUPS uses Postgres and the World simulator. After you sign up, <strong>log in with your email</strong> (no password complexity rules).
+      Use <strong>My shipments</strong> to track status. Shipments are created by Amazon over the AUIP API; the UPS daemon drives trucks in the World simulator.
+    </p>
+    <div class="ups-actions">
+      {% if user.is_authenticated %}
+        <a class="ups-btn ups-btn-primary" href="{% url 'my-packages' %}">My shipments</a>
+      {% else %}
+        <a class="ups-btn ups-btn-primary" href="{% url 'signup' %}">Create account</a>
+        <a class="ups-btn ups-btn-primary" href="{% url 'login' %}" style="background: var(--ups-white); color: var(--ups-brown) !important; border: 2px solid var(--ups-gold);">Log in</a>
+      {% endif %}
+    </div>
+  </div>
+  <div class="ups-hero-art">
+    <span>World · Trucks · Deliveries</span>
+  </div>
+</section>
+
+<div class="ups-card">
+  <h2 style="margin-top:0;color:var(--ups-brown);">What you can do</h2>
+  <ul class="ups-muted">
+    <li><strong>Sign up / Log in</strong>: email + password (demo accounts).</li>
+    <li><strong>AUIP</strong>: Amazon calls UPS (<code>POST /shipments</code>, pickup, ready, loaded, etc.); UPS callbacks notify Amazon at each step.</li>
+    <li><strong>My shipments</strong>: track status, filter, and search.</li>
+  </ul>
+</div>
 {% endblock %}

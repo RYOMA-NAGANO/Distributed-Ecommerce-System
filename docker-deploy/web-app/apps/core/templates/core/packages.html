@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}My shipments · MiniUPS{% endblock %}
+
+{% block content %}
+<div class="ups-card" style="padding:0;overflow:hidden;">
+  <div class="ups-track-header">
+    <h1 style="margin:0;font-size:1.15rem;">My shipments</h1>
+    <nav class="ups-tabs">
+      <a class="ups-tab {% if tab == 'all' %}ups-tab-active{% endif %}" href="{% url 'my-packages' %}?tab=all{% if search_q %}&q={{ search_q|urlencode }}{% endif %}">All</a>
+      <a class="ups-tab {% if tab == 'active' %}ups-tab-active{% endif %}" href="{% url 'my-packages' %}?tab=active{% if search_q %}&q={{ search_q|urlencode }}{% endif %}">In progress</a>
+      <a class="ups-tab {% if tab == 'delivered' %}ups-tab-active{% endif %}" href="{% url 'my-packages' %}?tab=delivered{% if search_q %}&q={{ search_q|urlencode }}{% endif %}">Delivered</a>
+    </nav>
+  </div>
+  <div style="padding:1rem 1.25rem 1.25rem;">
+    <form class="ups-search" method="get" action="{% url 'my-packages' %}">
+      <input type="hidden" name="tab" value="{{ tab }}">
+      <input type="text" name="q" value="{{ search_q }}" placeholder="Filter by shipment id" aria-label="Shipment id">
+      <button type="submit" class="ups-btn ups-btn-primary">Search</button>
+    </form>
+
+    {% if messages %}
+      {% for message in messages %}
+        <div class="ups-alert {% if message.tags == 'success' %}ups-alert-success{% else %}ups-alert-error{% endif %}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+
+    {% if packages %}
+      <div class="ups-package-list">
+        {% for package in packages %}
+          <article class="ups-package-card">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem;flex-wrap:wrap;">
+              <div>
+                <strong>{{ package.shipment_id }}</strong>
+                <span class="ups-status">{{ package.status }}</span>
+              </div>
+              {% if package.truck %}
+                <span class="ups-muted">Truck #{{ package.truck.truck_id }}</span>
+              {% endif %}
+            </div>
+            <p class="ups-muted" style="margin:0.5rem 0 0;font-size:0.88rem;">
+              Destination ({{ package.dest_x }}, {{ package.dest_y }}) · Warehouse {{ package.warehouse_id }}
+            </p>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="ups-muted">No shipments yet. In AUIP, Amazon creates shipments via <code>POST /shipments</code>; your account will see orders once they are associated with your UPS username.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
