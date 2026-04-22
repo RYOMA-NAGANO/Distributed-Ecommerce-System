@@ -1,1 +1,0 @@
-# Shipments app migrations package.
