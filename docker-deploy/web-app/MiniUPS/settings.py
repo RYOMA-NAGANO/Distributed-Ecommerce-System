@@ -97,6 +97,8 @@ OUTBOUND_RETRY_SECONDS = int(os.getenv("OUTBOUND_RETRY_SECONDS", "5"))
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
+    "http://localhost:8001",
+    "http://127.0.0.1:8001",
 ]
 
 # email settings

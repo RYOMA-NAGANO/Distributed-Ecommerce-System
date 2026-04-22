@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Mini Amazon{% endblock %}</title>
+    <style>
+        :root {
+            --nav-main: #131921;
+            --nav-sub: #232f3e;
+            --page-bg: #eaeded;
+            --card-bg: #ffffff;
+            --text-main: #111111;
+            --text-muted: #565959;
+            --link: #2162a1;
+            --accent: #ffd814;
+            --accent-strong: #f7ca00;
+            --border: #d5d9d9;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            color: var(--text-main);
+            background: var(--page-bg);
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .topbar {
+            background: var(--nav-main);
+            color: #ffffff;
+            padding: 10px 18px;
+        }
+
+        .topbar-inner,
+        .subnav-inner,
+        .page-shell {
+            max-width: 1460px;
+            margin: 0 auto;
+        }
+
+        .topbar-inner {
+            display: grid;
+            grid-template-columns: 220px minmax(320px, 1fr) 320px;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+        }
+
+        .brand-main {
+            font-size: 1.7rem;
+            line-height: 1;
+            letter-spacing: -0.5px;
+        }
+
+        .searchbar {
+            display: grid;
+            grid-template-columns: 78px 1fr 54px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .searchbar select,
+        .searchbar input,
+        .searchbar button {
+            border: 0;
+            margin: 0;
+            font: inherit;
+            height: 44px;
+        }
+
+        .searchbar select {
+            background: #f3f3f3;
+            padding: 0 28px 0 10px;
+            appearance: none;
+            background-image:
+                linear-gradient(45deg, transparent 50%, #5f6a72 50%),
+                linear-gradient(135deg, #5f6a72 50%, transparent 50%);
+            background-position:
+                calc(100% - 16px) 19px,
+                calc(100% - 11px) 19px;
+            background-size: 5px 5px, 5px 5px;
+            background-repeat: no-repeat;
+        }
+
+        .searchbar input {
+            padding: 0 14px;
+        }
+
+        .searchbar button {
+            background: #febd69;
+            font-size: 1.15rem;
+            cursor: pointer;
+        }
+
+        .top-links {
+            display: flex;
+            justify-content: flex-end;
+            gap: 22px;
+            font-size: 0.9rem;
+        }
+
+        .top-link-label {
+            display: block;
+            font-size: 0.78rem;
+            color: #d5d9d9;
+        }
+
+        .subnav {
+            background: var(--nav-sub);
+            color: #ffffff;
+        }
+
+        .subnav-inner {
+            display: flex;
+            gap: 18px;
+            padding: 10px 18px;
+            font-size: 0.95rem;
+            white-space: nowrap;
+            overflow-x: auto;
+        }
+
+        .page-shell {
+            padding: 24px 18px 40px;
+        }
+
+        .hero {
+            background: linear-gradient(90deg, #d9ecff 0%, #f7f7f7 48%, #ffe8c2 100%);
+            border-radius: 16px;
+            padding: 32px;
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 24px;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .hero h1 {
+            font-size: 2.5rem;
+            margin: 0 0 12px;
+            line-height: 1.05;
+        }
+
+        .hero p {
+            margin: 0 0 18px;
+            color: var(--text-muted);
+            font-size: 1.05rem;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 40px;
+            padding: 0 16px;
+            border-radius: 999px;
+            border: 1px solid #c7c7c7;
+            background: #ffffff;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            border-color: #f2c200;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-strong);
+        }
+
+        .hero-panel {
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 20px;
+        }
+
+        .hero-logo-panel {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 240px;
+        }
+
+        .hero-logo-image {
+            width: min(300px, 100%);
+            max-height: 240px;
+            object-fit: contain;
+            display: block;
+        }
+
+        .section-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 14px;
+        }
+
+        .section-head h2 {
+            margin: 0;
+            font-size: 1.45rem;
+        }
+
+        .section-head a {
+            color: var(--link);
+            font-size: 0.95rem;
+        }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 18px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 1px 2px rgba(15, 17, 17, 0.06);
+        }
+
+        .card-media {
+            height: 190px;
+            background: linear-gradient(135deg, #dde7f6 0%, #f8fafc 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 18px;
+        }
+
+        .media-box {
+            width: 100%;
+            height: 100%;
+            border-radius: 12px;
+            border: 1px dashed #a9b4bf;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #61707d;
+            font-weight: 700;
+            background: rgba(255, 255, 255, 0.65);
+        }
+
+        .media-image {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+            border-radius: 12px;
+            background: #ffffff;
+        }
+
+        .card-body {
+            padding: 16px;
+        }
+
+        .eyebrow {
+            color: var(--text-muted);
+            font-size: 0.82rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 6px;
+        }
+
+        .card h3 {
+            margin: 0 0 10px;
+            font-size: 1.1rem;
+            line-height: 1.3;
+        }
+
+        .card p {
+            margin: 0 0 12px;
+            color: var(--text-muted);
+            line-height: 1.45;
+        }
+
+        .price-row,
+        .meta-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .price {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: #eef3f8;
+            color: #31465a;
+            font-size: 0.78rem;
+            font-weight: 700;
+        }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            gap: 20px;
+        }
+
+        .panel {
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 18px;
+        }
+
+        .filter-group+.filter-group {
+            margin-top: 20px;
+        }
+
+        .filter-group h3 {
+            margin: 0 0 10px;
+            font-size: 1rem;
+        }
+
+        .filter-list {
+            display: grid;
+            gap: 8px;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .result-list {
+            display: grid;
+            gap: 18px;
+        }
+
+        .result-card {
+            display: grid;
+            grid-template-columns: 240px 1fr 220px;
+            gap: 20px;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 18px;
+        }
+
+        .result-card h3 {
+            margin: 0 0 10px;
+            font-size: 1.45rem;
+            line-height: 1.25;
+        }
+
+        .product-layout {
+            display: grid;
+            grid-template-columns: 1.05fr 1.15fr 340px;
+            gap: 22px;
+        }
+
+        .product-hero {
+            min-height: 420px;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            background: linear-gradient(135deg, #edf5ff 0%, #ffffff 100%);
+            padding: 20px;
+        }
+
+        .purchase-card {
+            position: sticky;
+            top: 18px;
+        }
+
+        .purchase-card .btn {
+            width: 100%;
+            margin-top: 12px;
+        }
+
+        .field-group {
+            display: grid;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .field-group label {
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        .field-group input,
+        .field-group select {
+            width: 100%;
+            min-height: 40px;
+            padding: 8px 12px;
+            border: 1px solid #b8c2cc;
+            border-radius: 10px;
+            font: inherit;
+        }
+
+        .status-strip {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+            margin: 18px 0 24px;
+        }
+
+        .status-step {
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            background: #ffffff;
+            text-align: center;
+            font-weight: 700;
+            color: #4f5e69;
+        }
+
+        .status-step.done {
+            background: #edf8f0;
+            border-color: #8bc49e;
+            color: #175c2a;
+        }
+
+        .status-step.current {
+            background: #fff5db;
+            border-color: #e4bf59;
+            color: #946200;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1.4fr 1fr;
+            gap: 20px;
+        }
+
+        .item-row {
+            display: grid;
+            grid-template-columns: 72px 1fr auto;
+            gap: 14px;
+            padding: 14px 0;
+            border-top: 1px solid #eaeded;
+        }
+
+        .item-row:first-child {
+            border-top: 0;
+            padding-top: 0;
+        }
+
+        .mini-media {
+            width: 72px;
+            height: 72px;
+            border-radius: 12px;
+            border: 1px dashed #b7c1ca;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #5d6975;
+            font-size: 0.8rem;
+            font-weight: 700;
+            overflow: hidden;
+            background: #ffffff;
+        }
+
+        .mini-media img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+
+        .tracking-card {
+            max-width: 760px;
+            margin: 0 auto;
+        }
+
+        .tracking-search {
+            display: grid;
+            grid-template-columns: 1fr 140px;
+            gap: 12px;
+            margin: 18px 0 22px;
+        }
+
+        .tracking-search input {
+            min-height: 48px;
+            padding: 0 14px;
+            border-radius: 12px;
+            border: 1px solid #b8c2cc;
+            font: inherit;
+        }
+
+        .muted {
+            color: var(--text-muted);
+        }
+
+        @media (max-width: 1200px) {
+
+            .topbar-inner,
+            .product-layout,
+            .result-card,
+            .detail-grid,
+            .hero {
+                grid-template-columns: 1fr;
+            }
+
+            .two-col {
+                grid-template-columns: 1fr;
+            }
+
+            .purchase-card {
+                position: static;
+            }
+        }
+
+        @media (max-width: 760px) {
+            .topbar-inner {
+                grid-template-columns: 1fr;
+            }
+
+            .searchbar {
+                grid-template-columns: 70px 1fr 50px;
+            }
+
+            .status-strip {
+                grid-template-columns: 1fr;
+            }
+
+            .tracking-search {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="topbar">
+            <div class="topbar-inner">
+                <a class="brand" href="{% url 'home' %}">
+                    <span class="brand-main">Mini Amazon</span>
+                </a>
+
+                <form class="searchbar" action="{% url 'product_list' %}" method="get">
+                    <select name="scope" aria-label="Search scope">
+                        <option value="all">All</option>
+                        <option value="products">Items</option>
+                    </select>
+                    <input type="search" name="q" placeholder="Search Mini Amazon"
+                        value="{{ request.GET.q|default:'' }}">
+                    <button type="submit" aria-label="Search">&#128269;</button>
+                </form>
+
+                <div class="top-links">
+                    <a href="{% url 'tracking_lookup' %}">
+                        <span class="top-link-label">Track</span>
+                        Order Status
+                    </a>
+                    <a href="{% url 'product_list' %}">
+                        <span class="top-link-label">Browse</span>
+                        Products
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <nav class="subnav">
+            <div class="subnav-inner">
+                <a href="{% url 'home' %}">Home</a>
+                <a href="{% url 'product_list' %}">Products</a>
+                <a href="{% url 'tracking_lookup' %}">Tracking</a>
+                <span class="muted">Mini Amazon / Mini UPS demo interface</span>
+            </div>
+        </nav>
+    </header>
+
+    <main class="page-shell">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+
+</html>

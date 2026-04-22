@@ -35,6 +35,10 @@ services:
     command: /code/runserver.sh
     volumes:
       - ./web-app:/code
+    environment:
+      - INTEROP_SHARED_SECRET=${INTEROP_SHARED_SECRET:-mini-ups-shared-secret}
+      - AMAZON_BASE_URL=${AMAZON_BASE_URL:-http://host.docker.internal:8000}
+      - AMAZON_INTEROP_SECRET=${AMAZON_INTEROP_SECRET:-mini-amazon-shared-secret}
     expose:
       - "8000"
     depends_on:
@@ -52,6 +56,9 @@ services:
       - WORLD_PORT=${WORLD_PORT:-12345}
       - UPS_DAEMON_TIMEOUT=${UPS_DAEMON_TIMEOUT:-5}
       - WORLD_RETRY_SECONDS=${WORLD_RETRY_SECONDS:-5}
+      - INTEROP_SHARED_SECRET=${INTEROP_SHARED_SECRET:-mini-ups-shared-secret}
+      - AMAZON_BASE_URL=${AMAZON_BASE_URL:-http://host.docker.internal:8000}
+      - AMAZON_INTEROP_SECRET=${AMAZON_INTEROP_SECRET:-mini-amazon-shared-secret}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -62,7 +69,7 @@ services:
   nginx:
     image: nginx:latest
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - ./nginx/config:/etc/nginx/conf.d
     depends_on:

@@ -1,0 +1,87 @@
+{% extends "store/base.html" %}
+
+{% block title %}{{ product.name }} | Mini Amazon{% endblock %}
+
+{% block content %}
+<section class="product-layout">
+    <div class="product-hero">
+        {% if product.image_url %}
+        <img class="media-image" src="{{ product.image_url }}" alt="{{ product.name }}" style="height: 100%;">
+        {% else %}
+        <div class="media-box" style="height: 100%;">PRODUCT {{ product.product_id }}</div>
+        {% endif %}
+    </div>
+
+    <article class="panel">
+        <div class="eyebrow">{{ product.category }}</div>
+        <h1 style="margin: 0 0 12px; font-size: 2.1rem; line-height: 1.15;">{{ product.name }}</h1>
+        <div class="meta-row" style="justify-content: flex-start; gap: 12px; margin-bottom: 18px;">
+            <span class="badge">{{ product.badge }}</span>
+            <span class="muted">Product ID {{ product.product_id }}</span>
+        </div>
+
+        <div class="price" style="margin-bottom: 10px;">${{ product.price }}</div>
+        <p class="muted" style="margin-bottom: 20px;">
+            {{ product.description }}
+        </p>
+
+        <div class="panel" style="background: #f8fbfd;">
+            <div class="eyebrow">Shipping Preview</div>
+            <p class="muted" style="margin: 0;">
+                Expected flow: created -> packing -> truck_en_route -> loaded -> delivered
+            </p>
+        </div>
+    </article>
+
+    <aside class="panel purchase-card">
+        <div class="eyebrow">Buy Now</div>
+        <div class="price">${{ product.price }}</div>
+        <p class="muted">In stock for demo ordering.</p>
+
+        <form method="post">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+            <div class="panel" style="background: #fff3f3; border-color: #e5b7b7; padding: 12px; margin-bottom: 14px;">
+                {% for error in form.non_field_errors %}
+                <div style="color: #b12704;">{{ error }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="field-group">
+                <label for="{{ form.quantity.id_for_label }}">Quantity</label>
+                {{ form.quantity }}
+                {% for error in form.quantity.errors %}
+                <div style="color: #b12704; font-size: 0.9rem;">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            <div class="field-group">
+                <label for="{{ form.destination_x.id_for_label }}">Destination X</label>
+                {{ form.destination_x }}
+                {% for error in form.destination_x.errors %}
+                <div style="color: #b12704; font-size: 0.9rem;">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            <div class="field-group">
+                <label for="{{ form.destination_y.id_for_label }}">Destination Y</label>
+                {{ form.destination_y }}
+                {% for error in form.destination_y.errors %}
+                <div style="color: #b12704; font-size: 0.9rem;">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            <div class="field-group">
+                <label for="{{ form.ups_account.id_for_label }}">UPS Account (Optional)</label>
+                {{ form.ups_account }}
+                {% for error in form.ups_account.errors %}
+                <div style="color: #b12704; font-size: 0.9rem;">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            <button class="btn btn-primary" type="submit">Place Order</button>
+        </form>
+    </aside>
+</section>
+{% endblock %}

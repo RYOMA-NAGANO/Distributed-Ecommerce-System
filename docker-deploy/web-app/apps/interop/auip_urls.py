@@ -10,14 +10,24 @@ from .auip_views import (
 )
 
 urlpatterns = [
+    path("shipments", ShipmentCreateView.as_view(), name="auip-shipment-create-noslash"),
     path("shipments/", ShipmentCreateView.as_view(), name="auip-shipment-create"),
+    path("shipments/<str:shipment_id>/pickup", ShipmentPickupView.as_view(), name="auip-shipment-pickup-noslash"),
     path("shipments/<str:shipment_id>/pickup/", ShipmentPickupView.as_view(), name="auip-shipment-pickup"),
+    path("shipments/<str:shipment_id>/ready", ShipmentReadyView.as_view(), name="auip-shipment-ready-noslash"),
     path("shipments/<str:shipment_id>/ready/", ShipmentReadyView.as_view(), name="auip-shipment-ready"),
+    path("shipments/<str:shipment_id>/loaded", ShipmentLoadedView.as_view(), name="auip-shipment-loaded-noslash"),
     path("shipments/<str:shipment_id>/loaded/", ShipmentLoadedView.as_view(), name="auip-shipment-loaded"),
+    path(
+        "shipments/<str:shipment_id>/destination",
+        ShipmentDestinationView.as_view(),
+        name="auip-shipment-destination-noslash",
+    ),
     path(
         "shipments/<str:shipment_id>/destination/",
         ShipmentDestinationView.as_view(),
         name="auip-shipment-destination",
     ),
+    path("shipments/<str:shipment_id>", ShipmentDetailView.as_view(), name="auip-shipment-detail-noslash"),
     path("shipments/<str:shipment_id>/", ShipmentDetailView.as_view(), name="auip-shipment-detail"),
 ]

@@ -1,0 +1,105 @@
+{% extends "store/base.html" %}
+
+{% block title %}{{ order.amazon_order_id }} | Mini Amazon{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <div class="eyebrow">Order Detail</div>
+            <h2 style="margin-bottom: 4px;">{{ order.amazon_order_id }}</h2>
+            <div class="muted">Shipment {{ shipment.shipment_id }} / Tracking {{ shipment.tracking_number }}</div>
+        </div>
+        <span class="badge">{{ shipment.status }}</span>
+    </div>
+
+    <div class="status-strip">
+        {% for step in timeline_steps %}
+        <div class="status-step {{ step.state }}">
+            {{ step.label }}
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="detail-grid">
+    <article class="panel">
+        <div class="section-head">
+            <h2>Items in This Shipment</h2>
+        </div>
+
+        {% for item in shipment_items %}
+        <div class="item-row">
+            <div class="mini-media">
+                {% if item.image_url %}
+                <img src="{{ item.image_url }}" alt="{{ item.name }}">
+                {% else %}
+                ITEM
+                {% endif %}
+            </div>
+            <div>
+                <h3 style="margin: 0 0 6px; font-size: 1.05rem;">{{ item.name }}</h3>
+                <div class="muted">Product ID {{ item.product_id }}</div>
+                <div class="muted">Quantity {{ item.quantity }}</div>
+            </div>
+            <div style="font-weight: 700;">${{ item.price }}</div>
+        </div>
+        {% endfor %}
+    </article>
+
+    <aside class="panel">
+        <div class="section-head">
+            <h2>Shipment Summary</h2>
+        </div>
+
+        <div class="field-group">
+            <label>Current Status</label>
+            <div>{{ shipment.status }}</div>
+        </div>
+
+        <div class="field-group">
+            <label>World</label>
+            <div>{{ shipment.world_id }}</div>
+        </div>
+
+        <div class="field-group">
+            <label>Warehouse</label>
+            <div>{{ shipment.warehouse_label }}</div>
+        </div>
+
+        <div class="field-group">
+            <label>Destination</label>
+            <div>{{ shipment.destination }}</div>
+        </div>
+
+        <div class="field-group">
+            <label>UPS Account</label>
+            <div>{{ order.ups_account|default:"Not provided" }}</div>
+        </div>
+    </aside>
+</section>
+
+<section class="panel" style="margin-top: 20px;">
+    <div class="section-head">
+        <h2>Recent Shipment Events</h2>
+    </div>
+
+    {% if shipment_events %}
+    {% for event in shipment_events %}
+    <div class="item-row">
+        <div class="mini-media">{{ event.source|upper }}</div>
+        <div>
+            <h3 style="margin: 0 0 6px; font-size: 1rem;">{{ event.event_type }}</h3>
+            <div class="muted">Status {{ event.status_snapshot|default:"n/a" }}</div>
+            {% if event.error_message %}
+            <div class="muted" style="color: #b12704;">{{ event.error_message }}</div>
+            {% endif %}
+        </div>
+        <div class="muted" style="white-space: nowrap;">{{ event.created_at|date:"Y-m-d H:i:s" }}</div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="muted" style="margin: 0;">No shipment events recorded yet.</p>
+    {% endif %}
+</section>
+{% endblock %}

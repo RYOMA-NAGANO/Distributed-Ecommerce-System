@@ -1,0 +1,43 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-amazon_db}
+      POSTGRES_USER: ${POSTGRES_USER:-amazon_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-amazon_pass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    restart: unless-stopped
+    command: sh /app/docker/web-entrypoint.sh
+    env_file:
+      - .env
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+
+  daemon:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.daemon
+    restart: unless-stopped
+    command: sh /app/docker/daemon-entrypoint.sh
+    env_file:
+      - .env
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  postgres_data:

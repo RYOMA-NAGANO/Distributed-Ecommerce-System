@@ -1,0 +1,4 @@
+Django==5.2.10
+psycopg[binary]==3.2.10
+protobuf>=6.0,<7.0
+grpcio-tools>=1.60,<2.0

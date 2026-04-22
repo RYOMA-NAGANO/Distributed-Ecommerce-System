@@ -56,7 +56,8 @@ def auip_create_shipment(payload: dict) -> Package:
 @transaction.atomic
 def auip_request_pickup(shipment_id: str, warehouse_id: int, world_id: int) -> Package:
     ensure_trucks_initialized()
-    p = Package.objects.select_for_update().select_related("truck").filter(shipment_id=shipment_id).first()
+    # Avoid FOR UPDATE on an outer join (truck is nullable), which PostgreSQL rejects.
+    p = Package.objects.select_for_update().filter(shipment_id=shipment_id).first()
     if p is None:
         raise ShipmentNotFoundError("Unknown shipment_id.")
     if int(p.world_id) != int(world_id):

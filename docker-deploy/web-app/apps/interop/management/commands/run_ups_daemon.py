@@ -120,8 +120,7 @@ class Command(BaseCommand):
         for package in candidates:
             with transaction.atomic():
                 locked = (
-                    Package.objects.select_related("truck")
-                    .select_for_update()
+                    Package.objects.select_for_update()
                     .filter(
                         shipment_id=package.shipment_id,
                         status=S.TRUCK_EN_ROUTE,
@@ -158,8 +157,7 @@ class Command(BaseCommand):
         for package in candidates:
             with transaction.atomic():
                 locked = (
-                    Package.objects.select_related("truck")
-                    .select_for_update()
+                    Package.objects.select_for_update()
                     .filter(
                         shipment_id=package.shipment_id,
                         status=S.LOADED,

@@ -1,0 +1,46 @@
+{% extends "store/base.html" %}
+
+{% block title %}Tracking | Mini Amazon{% endblock %}
+
+{% block content %}
+<section class="panel tracking-card">
+    <div class="eyebrow">Tracking</div>
+    <h1 style="margin: 0 0 10px;">Find your order or shipment</h1>
+    <p class="muted">
+        Enter an Amazon order id, shipment id, or tracking number to open the real order detail page.
+    </p>
+
+    <form class="tracking-search" method="get">
+        <input type="text" name="query" value="{{ query }}"
+            placeholder="Enter order id, shipment id, or tracking number">
+        <button class="btn btn-primary" type="submit">Track</button>
+    </form>
+
+    {% if lookup_error %}
+    <div class="panel" style="background: #fff3f3; border-color: #e5b7b7; margin-bottom: 18px;">
+        <div style="color: #b12704;">{{ lookup_error }}</div>
+    </div>
+    {% endif %}
+
+    <div class="panel" style="background: #f8fbfd;">
+        <div class="eyebrow">Recent Shipments</div>
+        {% if recent_shipments %}
+        {% for shipment in recent_shipments %}
+        <div class="item-row">
+            <div class="mini-media">SHIP</div>
+            <div>
+                <h3 style="margin: 0 0 6px; font-size: 1rem;">{{ shipment.shipment_id }}</h3>
+                <div class="muted">{{ shipment.order.amazon_order_id }}</div>
+                <div class="muted">Status {{ shipment.status }}</div>
+            </div>
+            <div style="display: flex; align-items: center;">
+                <a class="btn" href="{% url 'order_detail' shipment.order.amazon_order_id %}">Open</a>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="muted" style="margin: 0;">No shipments yet. Place an order first and it will show up here.</p>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends "store/base.html" %}
+
+{% block title %}Products | Mini Amazon{% endblock %}
+
+{% block content %}
+<section>
+    <div class="section-head">
+        <div>
+            <h2>Products</h2>
+            {% if search_query %}
+            <div class="muted" style="margin-top: 4px;">
+                {{ total_products }} result{{ total_products|pluralize }} for "{{ search_query }}"
+            </div>
+            {% else %}
+            <div class="muted" style="margin-top: 4px;">
+                Showing {{ page_obj.start_index }}-{{ page_obj.end_index }} of {{ total_products }} items
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="result-list">
+        {% for product in products %}
+        <article class="result-card">
+            <div class="card-media" style="height: 220px; border-radius: 12px;">
+                {% if product.image_url %}
+                <img class="media-image" src="{{ product.image_url }}" alt="{{ product.name }}">
+                {% else %}
+                <div class="media-box">ITEM {{ product.product_id }}</div>
+                {% endif %}
+            </div>
+
+            <div>
+                <div class="eyebrow">{{ product.category }}</div>
+                <h3>{{ product.name }}</h3>
+                <p>{{ product.description }}</p>
+                <div class="meta-row" style="justify-content: flex-start; gap: 12px;">
+                    <span class="badge">{{ product.badge }}</span>
+                    <span class="muted">Product ID {{ product.product_id }}</span>
+                </div>
+            </div>
+
+            <div class="panel" style="padding: 16px;">
+                <div class="price">${{ product.price }}</div>
+                <p class="muted" style="margin: 10px 0 0;">Available for demo ordering and shipment flow testing.</p>
+                <div style="margin-top: 16px;">
+                    <a class="btn btn-primary" href="{% url 'product_detail' product.product_id %}">View Details</a>
+                </div>
+            </div>
+        </article>
+        {% empty %}
+        <article class="panel">
+            <h3 style="margin-top: 0;">No products found</h3>
+            <p class="muted" style="margin-bottom: 0;">Try a different search term.</p>
+        </article>
+        {% endfor %}
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+    <nav style="display: flex; justify-content: center; gap: 10px; margin-top: 24px; flex-wrap: wrap;">
+        {% if page_obj.has_previous %}
+        <a
+            class="btn"
+            href="?{% if search_query %}q={{ search_query|urlencode }}&{% endif %}page={{ page_obj.previous_page_number }}"
+        >
+            Previous
+        </a>
+        {% endif %}
+
+        {% for page_number in page_obj.paginator.page_range %}
+            {% if page_number == page_obj.number %}
+            <span class="btn btn-primary">{{ page_number }}</span>
+            {% else %}
+            <a
+                class="btn"
+                href="?{% if search_query %}q={{ search_query|urlencode }}&{% endif %}page={{ page_number }}"
+            >
+                {{ page_number }}
+            </a>
+            {% endif %}
+        {% endfor %}
+
+        {% if page_obj.has_next %}
+        <a
+            class="btn"
+            href="?{% if search_query %}q={{ search_query|urlencode }}&{% endif %}page={{ page_obj.next_page_number }}"
+        >
+            Next
+        </a>
+        {% endif %}
+    </nav>
+    {% endif %}
+    </section>
+{% endblock %}

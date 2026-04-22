@@ -1,0 +1,56 @@
+{% extends "store/base.html" %}
+{% load static %}
+
+{% block title %}Home | Mini Amazon{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div>
+        <h1>Order fast. Track clearly.</h1>
+        <p>
+            Browse products, place an order, and follow the shipment from packing to delivery.
+        </p>
+        <div class="hero-actions">
+            <a class="btn btn-primary" href="{% url 'product_list' %}">Browse Products</a>
+            <a class="btn" href="{% url 'tracking_lookup' %}">Track a Shipment</a>
+        </div>
+    </div>
+
+    <div class="hero-panel hero-logo-panel" aria-label="Mini Amazon logo">
+        <img class="hero-logo-image" src="{% static 'store/logo.png' %}" alt="Mini Amazon logo">
+    </div>
+</section>
+
+<section>
+    <div class="section-head">
+        <h2>Featured Products</h2>
+        <a href="{% url 'product_list' %}">View all products</a>
+    </div>
+
+    <div class="card-grid">
+        {% for product in featured_products %}
+        <article class="card">
+            <div class="card-media">
+                {% if product.image_url %}
+                <img class="media-image" src="{{ product.image_url }}" alt="{{ product.name }}">
+                {% else %}
+                <div class="media-box">PRODUCT {{ product.product_id }}</div>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div class="eyebrow">{{ product.category }}</div>
+                <h3>{{ product.name }}</h3>
+                <p>{{ product.description }}</p>
+                <div class="price-row">
+                    <span class="price">${{ product.price }}</span>
+                    <span class="badge">{{ product.badge }}</span>
+                </div>
+                <div style="margin-top: 14px;">
+                    <a class="btn btn-primary" href="{% url 'product_detail' product.product_id %}">View Item</a>
+                </div>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}
