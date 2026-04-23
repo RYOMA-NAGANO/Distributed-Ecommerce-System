@@ -90,7 +90,6 @@ AMAZON_INTEROP_SECRET = os.getenv("AMAZON_INTEROP_SECRET", "").strip()
 WORLD_HOST = os.getenv("WORLD_HOST", "host.docker.internal")
 WORLD_PORT = int(os.getenv("WORLD_PORT", "12345"))
 WORLD_ID = os.getenv("WORLD_ID", "")
-UPS_TRUCKS = os.getenv("UPS_TRUCKS", '[{"id": 1, "x": 1, "y": 1}, {"id": 2, "x": 5, "y": 5}]')
 WORLD_RETRY_SECONDS = int(os.getenv("WORLD_RETRY_SECONDS", "5"))
 OUTBOUND_RETRY_SECONDS = int(os.getenv("OUTBOUND_RETRY_SECONDS", "5"))
 

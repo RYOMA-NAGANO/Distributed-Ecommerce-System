@@ -84,6 +84,13 @@ class ShipmentCreateView(InteropAPIView):
                     data.get("shipment_id"),
                     409,
                 )
+            if str(exc) == "duplicate_world_package_id":
+                return _err(
+                    "DUPLICATE_PACKAGE_ID",
+                    "world packageid must be unique within this world.",
+                    data.get("shipment_id"),
+                    409,
+                )
             return _err("INVALID_REQUEST", str(exc))
         except Exception as exc:
             return _err("INVALID_REQUEST", str(exc))

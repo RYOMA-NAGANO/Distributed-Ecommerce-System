@@ -1,14 +1,15 @@
 import time
 import socket
-import json
 from importlib import import_module
 
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from apps.core import auip_states as S
 from apps.core.auip_services import (
+    auip_recover_stale_pickup_requests,
+    auip_recover_stuck_loading,
+    auip_requeue_interrupted_deliveries_for_truck,
     auip_reconcile_truck_arrivals,
     auip_rotate_pickup_truck,
     auip_retry_pending_load_requests,
@@ -16,6 +17,7 @@ from apps.core.auip_services import (
 )
 from apps.core.models import Package, PositionUpdate, Truck
 from apps.interop.services import amazon_client
+from apps.interop.services.world_response_dedupe import claim_world_response_seq
 from apps.interop.services.seqnum import allocate_next_seqnum
 from apps.interop.services.world_binding import set_world_binding
 
@@ -23,6 +25,16 @@ from apps.interop.services.world_binding import set_world_binding
 class Command(BaseCommand):
     help = "Start the UPS daemon that talks to the World simulator and Amazon."
     _current_world_id: int | None = None
+    _PICKUP_DISPATCH_TRUCK_STATUSES = (
+        Truck.TruckStatus.IDLE,
+        Truck.TruckStatus.ARRIVE_WAREHOUSE,
+        Truck.TruckStatus.DELIVERING,
+    )
+    _DELIVERY_DISPATCH_TRUCK_STATUSES = (
+        Truck.TruckStatus.IDLE,
+        Truck.TruckStatus.ARRIVE_WAREHOUSE,
+        Truck.TruckStatus.DELIVERING,
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -74,7 +86,6 @@ class Command(BaseCommand):
         self.stdout.write(f"worldid={result.world_id}")
         self.stdout.write(f"result={result.result}")
         set_world_binding(result.world_id, result.result)
-        self._sync_truck_pool_for_world()
 
         last_idle_log = 0.0
 
@@ -86,9 +97,11 @@ class Command(BaseCommand):
                 last_idle_log = now
 
         def maybe_enqueue_outbound():
-            self._enqueue_pickups(session.sock, send_pickup)
+            auip_recover_stale_pickup_requests(world_id=self._current_world_id)
             auip_reconcile_truck_arrivals(world_id=self._current_world_id)
+            auip_recover_stuck_loading(world_id=self._current_world_id)
             auip_retry_pending_load_requests(world_id=self._current_world_id)
+            self._enqueue_pickups(session.sock, send_pickup)
             self._enqueue_deliveries(session.sock, send_deliver)
 
         def process_responses(responses):
@@ -97,16 +110,20 @@ class Command(BaseCommand):
 
             with transaction.atomic():
                 for finished in responses.completions:
-                    self._handle_u_finished(finished)
+                    if claim_world_response_seq(self._current_world_id, int(finished.seqnum)):
+                        self._handle_u_finished(finished)
 
                 for delivered in responses.delivered:
-                    self._handle_u_delivery_made(delivered)
+                    if claim_world_response_seq(self._current_world_id, int(delivered.seqnum)):
+                        self._handle_u_delivery_made(delivered)
 
                 for truck in responses.truckstatus:
-                    self._handle_u_truck(truck)
+                    if claim_world_response_seq(self._current_world_id, int(truck.seqnum)):
+                        self._handle_u_truck(truck)
 
                 for err in responses.error:
-                    self._handle_u_err(err)
+                    if claim_world_response_seq(self._current_world_id, int(err.seqnum)):
+                        self._handle_u_err(err)
 
             if acks:
                 send_acks_only(session.sock, acks)
@@ -136,7 +153,6 @@ class Command(BaseCommand):
                 world_id=int(self._current_world_id),
                 status__in=[S.TRUCK_EN_ROUTE, S.PACKED],
                 pickup_seqnum__isnull=True,
-                truck__isnull=False,
             )
             .order_by("shipment_id")[:10]
         )
@@ -155,33 +171,48 @@ class Command(BaseCommand):
                 )
                 if locked is None:
                     continue
-                # Keep one in-flight pickup command per truck. World rejects
-                # additional commands while a pickup route is still in transit.
-                has_other_inflight_pickup = (
-                    Package.objects.select_for_update()
-                    .filter(
-                        world_id=int(self._current_world_id),
-                        truck_id=locked.truck_id,
-                        status__in=[S.TRUCK_EN_ROUTE, S.PACKED],
-                        pickup_seqnum__isnull=False,
-                    )
-                    .exclude(shipment_id=locked.shipment_id)
-                    .exists()
-                )
-                if has_other_inflight_pickup:
+
+                dispatch_truck = self._select_dispatchable_pickup_truck()
+                if dispatch_truck is None:
+                    if locked.truck_id is not None:
+                        locked.truck = None
+                        locked.save(update_fields=["truck"])
                     continue
 
                 seq = allocate_next_seqnum()
                 send_pickup(
                     sock,
-                    truck_id=locked.truck_id,
+                    truck_id=dispatch_truck.truck_id,
                     warehouse_id=locked.warehouse_id,
                     seqnum=seq,
                     acks=None,
                 )
+                Truck.objects.filter(truck_id=dispatch_truck.truck_id).exclude(
+                    truck_status=Truck.TruckStatus.INVALID
+                ).update(truck_status=Truck.TruckStatus.TRAVELING)
 
+                locked.truck = dispatch_truck
                 locked.pickup_seqnum = seq
-                locked.save(update_fields=["pickup_seqnum"])
+                locked.save(update_fields=["truck", "pickup_seqnum"])
+
+    def _select_dispatchable_pickup_truck(self) -> Truck | None:
+        if self._current_world_id is None:
+            return None
+        priority = {
+            Truck.TruckStatus.IDLE: 0,
+            Truck.TruckStatus.ARRIVE_WAREHOUSE: 1,
+            Truck.TruckStatus.DELIVERING: 2,
+        }
+        trucks = list(
+            Truck.objects.select_for_update()
+            .filter(truck_status__in=self._PICKUP_DISPATCH_TRUCK_STATUSES)
+            .order_by("truck_id")
+        )
+        trucks.sort(key=lambda t: (priority.get(t.truck_status, 99), int(t.truck_id)))
+
+        # Dispatch decision is based on current truck status only.
+        # Do not block on historical package-truck bindings.
+        return trucks[0] if trucks else None
 
     def _enqueue_deliveries(self, sock, send_deliver):
         if self._current_world_id is None:
@@ -190,9 +221,10 @@ class Command(BaseCommand):
             Package.objects.select_related("truck")
             .filter(
                 world_id=int(self._current_world_id),
-                status=S.LOADED,
+                status__in=[S.LOADED, S.OUT_FOR_DELIVERY],
                 delivery_seqnum__isnull=True,
                 truck__isnull=False,
+                truck__truck_status__in=self._DELIVERY_DISPATCH_TRUCK_STATUSES,
             )
             .order_by("shipment_id")[:10]
         )
@@ -204,7 +236,7 @@ class Command(BaseCommand):
                     .filter(
                         world_id=int(self._current_world_id),
                         shipment_id=package.shipment_id,
-                        status=S.LOADED,
+                        status__in=[S.LOADED, S.OUT_FOR_DELIVERY],
                         delivery_seqnum__isnull=True,
                     )
                     .first()
@@ -257,6 +289,10 @@ class Command(BaseCommand):
             Truck.objects.filter(truck_id=truck_id).update(
                 truck_status=Truck.TruckStatus.ARRIVE_WAREHOUSE
             )
+            auip_requeue_interrupted_deliveries_for_truck(
+                truck_id=truck_id,
+                world_id=int(self._current_world_id),
+            )
             auip_set_truck_arrived_for_truck(
                 truck_id, int(finished.x), int(finished.y), pickup_seqnum=seq
             )
@@ -284,7 +320,8 @@ class Command(BaseCommand):
 
         if package.status == S.OUT_FOR_DELIVERY:
             package.status = S.DELIVERED
-            package.save(update_fields=["status"])
+            package.delivery_seqnum = None
+            package.save(update_fields=["status", "delivery_seqnum"])
             try:
                 amazon_client.notify_delivered(package, package.dest_x, package.dest_y)
             except Exception as exc:
@@ -376,29 +413,3 @@ class Command(BaseCommand):
         if "DELIVER" in upper:
             return Truck.TruckStatus.DELIVERING
         return None
-
-    def _sync_truck_pool_for_world(self) -> None:
-        try:
-            configured = json.loads(settings.UPS_TRUCKS)
-        except Exception:
-            configured = []
-
-        truck_ids: list[int] = []
-        for row in configured:
-            try:
-                tid = int(row["id"])
-            except Exception:
-                continue
-            truck_ids.append(tid)
-            Truck.objects.get_or_create(
-                truck_id=tid,
-                defaults={"truck_status": Truck.TruckStatus.IDLE},
-            )
-
-        if truck_ids:
-            Truck.objects.filter(truck_id__in=truck_ids).update(
-                truck_status=Truck.TruckStatus.IDLE
-            )
-            Truck.objects.exclude(truck_id__in=truck_ids).update(
-                truck_status=Truck.TruckStatus.INVALID
-            )

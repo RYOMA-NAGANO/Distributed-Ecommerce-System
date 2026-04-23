@@ -48,3 +48,22 @@ class WorldBinding(models.Model):
 
     class Meta:
         db_table = "interop_world_binding"
+
+
+class WorldResponseSeq(models.Model):
+    """
+    Deduplication ledger for inbound World response seqnums.
+    """
+
+    world_id = models.BigIntegerField()
+    seqnum = models.BigIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "interop_world_response_seq"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["world_id", "seqnum"],
+                name="uniq_world_response_seq",
+            )
+        ]

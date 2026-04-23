@@ -1,10 +1,3 @@
-import json
-
-from django.conf import settings
-
-from .models import Truck
-
-
 class NoAvailableTruckError(Exception):
     pass
 
@@ -31,15 +24,6 @@ def resolve_world_package_id(shipment_id, world_package_id):
     raise ValueError(
         "world_package_id is required when shipment_id has no digits to derive World package id."
     )
-
-
-def ensure_trucks_initialized():
-    configured_trucks = json.loads(settings.UPS_TRUCKS)
-    for truck in configured_trucks:
-        Truck.objects.get_or_create(
-            truck_id=truck["id"],
-            defaults={"truck_status": Truck.TruckStatus.IDLE},
-        )
 
 
 def create_package_with_assigned_truck(*args, **kwargs):

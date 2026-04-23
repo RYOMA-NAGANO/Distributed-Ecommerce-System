@@ -64,6 +64,13 @@ class Package(models.Model):
 
     class Meta:
         db_table = "packages"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["world_id", "world_package_id"],
+                condition=models.Q(world_package_id__isnull=False),
+                name="uniq_pkg_world_worldpkg_notnull",
+            )
+        ]
 
     def __str__(self):
         return self.shipment_id

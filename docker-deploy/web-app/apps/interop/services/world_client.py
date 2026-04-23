@@ -1,4 +1,3 @@
-import json
 import socket
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional
@@ -29,17 +28,41 @@ class WorldSession:
     handshake: WorldHandshakeResult
 
 
+def _initial_spawn_for_truck(truck_id: int) -> tuple[int, int]:
+    # Deterministic spawn positions for world creation handshake only.
+    idx = max(0, int(truck_id) - 1)
+    return (1 + (idx % 4) * 4, 1 + (idx // 4) * 4)
+
+
 def build_connect_message():
     connect = world_ups_pb2.UConnect()
     if settings.WORLD_ID:
         connect.worldid = int(settings.WORLD_ID)
     connect.isAmazon = False
 
-    for truck in json.loads(settings.UPS_TRUCKS):
-        init_truck = connect.trucks.add()
-        init_truck.id = truck["id"]
-        init_truck.x = truck["x"]
-        init_truck.y = truck["y"]
+    # UInitTruck exists only on connect; initialize from UPS's persisted truck ids.
+    # If joining an existing world id, we do not redefine truck pool here.
+    if not settings.WORLD_ID:
+        from apps.core.models import Truck
+
+        known_ids = list(
+            Truck.objects.exclude(truck_status=Truck.TruckStatus.INVALID)
+            .order_by("truck_id")
+            .values_list("truck_id", flat=True)
+        )
+        if not known_ids:
+            truck, _ = Truck.objects.get_or_create(
+                truck_id=1,
+                defaults={"truck_status": Truck.TruckStatus.IDLE},
+            )
+            known_ids = [int(truck.truck_id)]
+
+        for truck_id in known_ids:
+            init_truck = connect.trucks.add()
+            init_truck.id = int(truck_id)
+            x, y = _initial_spawn_for_truck(int(truck_id))
+            init_truck.x = int(x)
+            init_truck.y = int(y)
 
     return connect
 
@@ -102,10 +125,8 @@ def collect_response_seqnums(responses) -> list[int]:
     for msg in responses.error:
         seqnums.append(int(msg.seqnum))
 
-    for seq in responses.acks:
-        seqnums.append(int(seq))
-
-    return seqnums
+    # Only ack concrete response messages from World.
+    return list(dict.fromkeys(seqnums))
 
 
 def build_commands_with_acks(extra_acks: Optional[Iterable[int]] = None) -> world_ups_pb2.UCommands:
