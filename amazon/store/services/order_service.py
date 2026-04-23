@@ -100,46 +100,20 @@ def create_order_from_product(
 
 
 def _get_default_warehouse() -> Warehouse:
-    configured_world_id = int(os.getenv("WORLD_ID", "0") or "0")
-
-    if configured_world_id:
-        world_id = configured_world_id
-        warehouse, _ = Warehouse.objects.get_or_create(
-            world_id=world_id,
-            warehouse_id=DEFAULT_WAREHOUSE_ID,
-            defaults={
-                "x": DEFAULT_WAREHOUSE_X,
-                "y": DEFAULT_WAREHOUSE_Y,
-            },
-        )
-        return warehouse
-
     try:
         world_id = fetch_world_id()
-        warehouse, _ = Warehouse.objects.get_or_create(
-            world_id=world_id,
-            warehouse_id=DEFAULT_WAREHOUSE_ID,
-            defaults={
-                "x": DEFAULT_WAREHOUSE_X,
-                "y": DEFAULT_WAREHOUSE_Y,
-            },
-        )
-        return warehouse
-    except UpsClientError:
-        pass
+    except UpsClientError as exc:
+        raise UpsClientError("UPS has not published a usable world_id yet.") from exc
 
-    existing = Warehouse.objects.filter(
+    warehouse, _ = Warehouse.objects.get_or_create(
+        world_id=world_id,
         warehouse_id=DEFAULT_WAREHOUSE_ID,
-        world_id__gt=0,
-    ).order_by("-id").first()
-    if existing:
-        return existing
-
-    existing = Warehouse.objects.order_by("-id").first()
-    if existing:
-        return existing
-
-    raise UpsClientError("No usable world_id is available from UPS and no warehouse is persisted locally.")
+        defaults={
+            "x": DEFAULT_WAREHOUSE_X,
+            "y": DEFAULT_WAREHOUSE_Y,
+        },
+    )
+    return warehouse
 
 
 def _generate_shipment_id(*, world_id: int) -> str:

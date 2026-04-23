@@ -8,7 +8,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-amazon_pass}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-
+    security_opt:
+      - apparmor:unconfined
   web:
     build:
       context: .
@@ -23,7 +24,10 @@ services:
       - .:/app
     ports:
       - "8000:8000"
-
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    security_opt:
+      - apparmor:unconfined
   daemon:
     build:
       context: .
@@ -38,6 +42,7 @@ services:
       - .:/app
     extra_hosts:
       - "host.docker.internal:host-gateway"
-
+    security_opt:
+      - apparmor:unconfined
 volumes:
   postgres_data:

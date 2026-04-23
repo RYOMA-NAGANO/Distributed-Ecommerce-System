@@ -39,17 +39,11 @@ _WAREHOUSES_ENV = [
 
 
 def _get_world_id():
-    """Return world_id, preferring UPS's active world binding when available."""
-    configured = int((os.getenv("WORLD_ID", "0") or "0").strip())
-    if configured:
-        return configured
+    """Return the active world_id published by UPS, or None until UPS is ready."""
     try:
         return fetch_world_id()
-    except UpsClientError:
-        pass
-    wh = Warehouse.objects.order_by("-id").first()
-    if wh and wh.world_id:
-        return wh.world_id
+    except UpsClientError as exc:
+        logger.info("UPS world_id lookup failed: %s", exc)
     return None
 
 

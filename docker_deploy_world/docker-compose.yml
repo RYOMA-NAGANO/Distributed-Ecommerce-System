@@ -8,7 +8,9 @@ services:
       POSTGRES_DB: worldSim
     ports:
       - "5434:5432"
-    restart: always
+#    restart: always
+    security_opt:
+      - apparmor:unconfined
   server:
     build: ./
     command: bash -c "./wait-for-it.sh mydb:5432 --strict -- ./server 12345 23456 0"
@@ -17,3 +19,5 @@ services:
       - "23456:23456"
     depends_on:
       - mydb
+    security_opt:
+      - apparmor:unconfined

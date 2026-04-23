@@ -17,6 +17,8 @@ from store.models import (
     ShipmentStatus,
     Warehouse,
 )
+from store.services import order_service
+from store.services.ups_client import UpsClientError
 
 
 class StoreFlowTests(TestCase):
@@ -71,6 +73,7 @@ class StoreFlowTests(TestCase):
 
     def test_product_detail_post_creates_order_and_shipment(self):
         with (
+            patch("store.services.order_service.fetch_world_id", return_value=self.warehouse.world_id),
             patch("store.services.order_service._sync_shipment_to_ups") as sync_mock,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -100,6 +103,14 @@ class StoreFlowTests(TestCase):
 
         creation_event = ShipmentEvent.objects.get(event_type="shipment_created")
         self.assertEqual(creation_event.source, EventSource.WEB)
+
+    def test_default_warehouse_requires_ups_world_binding(self):
+        with patch(
+            "store.services.order_service.fetch_world_id",
+            side_effect=UpsClientError("UPS has not established a World connection yet."),
+        ):
+            with self.assertRaises(UpsClientError):
+                order_service._get_default_warehouse()
 
     def test_truck_arrived_callback_is_idempotent(self):
         shipment = self._create_shipment(status=ShipmentStatus.PACKED)
