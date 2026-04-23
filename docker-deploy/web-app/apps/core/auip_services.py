@@ -495,7 +495,7 @@ def auip_confirm_loaded(shipment_id: str, truck_id: int, warehouse_id: int, worl
         raise ShipmentStateError("truck_id mismatch.")
     if p.status == S.LOADED:
         return p
-    if p.status != S.LOADING:
+    if p.status not in (S.LOADING, S.TRUCK_ARRIVED, S.PACKED):
         raise ShipmentStateError(f"loaded not allowed in state {p.status}")
     p.status = S.LOADED
     p.save(update_fields=["status"])

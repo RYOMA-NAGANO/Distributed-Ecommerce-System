@@ -104,8 +104,8 @@ class Scheduler:
 
             sid = shipment_worker.handle_ready(packed, self._pending_packs)
             if sid:
-                self._ups_notify("packed", sid)
                 shipment_worker.try_issue_load(sid, self._world, self._ack, self._pending_loads)
+                self._ups_notify("packed", sid)
 
         for loaded in resp.loaded:
             world_response_acks.append(loaded.seqnum)
