@@ -29,3 +29,8 @@ class PackageSelfServiceForm(forms.Form):
     dest_y = forms.IntegerField(label="Destination Y")
     warehouse_id = forms.IntegerField(initial=0, required=False, label="Warehouse id")
     world_package_id = forms.IntegerField(required=False, label="World package id (optional)")
+
+
+class DestinationUpdateForm(forms.Form):
+    dest_x = forms.IntegerField(label="Destination X")
+    dest_y = forms.IntegerField(label="Destination Y")

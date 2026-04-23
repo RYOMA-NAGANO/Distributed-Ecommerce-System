@@ -29,14 +29,26 @@
       <div class="ups-package-list">
         {% for package in packages %}
           <article class="ups-package-card">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem;flex-wrap:wrap;">
+            <div class="ups-package-card-head">
               <div>
                 <strong>{{ package.shipment_id }}</strong>
                 <span class="ups-status">{{ package.status }}</span>
               </div>
-              {% if package.truck %}
-                <span class="ups-muted">Truck #{{ package.truck.truck_id }}</span>
-              {% endif %}
+              <div class="ups-package-actions">
+                {% if package.truck %}
+                  <span class="ups-muted">Truck #{{ package.truck.truck_id }}</span>
+                {% endif %}
+                {% if package.user_id == request.user.id and package.status != "delivered" %}
+                  <button
+                    type="button"
+                    class="ups-btn ups-btn-outline ups-destination-edit"
+                    data-action="{% url 'package-destination-update' package.shipment_id %}"
+                    data-shipment-id="{{ package.shipment_id }}"
+                    data-dest-x="{{ package.dest_x }}"
+                    data-dest-y="{{ package.dest_y }}"
+                  >Edit destination</button>
+                {% endif %}
+              </div>
             </div>
             <p class="ups-muted" style="margin:0.5rem 0 0;font-size:0.88rem;">
               Destination ({{ package.dest_x }}, {{ package.dest_y }}) · Warehouse {{ package.warehouse_id }}
@@ -44,6 +56,29 @@
           </article>
         {% endfor %}
       </div>
+      {% if show_destination_modal %}
+        <div class="ups-modal-backdrop" id="destination-modal" hidden>
+          <div class="ups-modal-window" role="dialog" aria-modal="true" aria-labelledby="destination-modal-title">
+            <div class="ups-modal-head">
+              <h2 id="destination-modal-title">Edit destination</h2>
+              <button type="button" class="ups-modal-close" aria-label="Close destination editor">&times;</button>
+            </div>
+            <form method="post" class="ups-form" id="destination-form">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <p class="ups-muted" id="destination-shipment" style="margin:0 0 0.75rem;"></p>
+              <label for="destination-x">Destination X</label>
+              <input id="destination-x" type="number" name="dest_x" required>
+              <label for="destination-y">Destination Y</label>
+              <input id="destination-y" type="number" name="dest_y" required>
+              <div class="ups-actions">
+                <button type="button" class="ups-btn ups-btn-outline ups-modal-cancel">Cancel</button>
+                <button type="submit" class="ups-btn ups-btn-primary">Save destination</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      {% endif %}
     {% elif search_q %}
       <p class="ups-muted">No shipments matched your search.</p>
     {% else %}
@@ -51,4 +86,41 @@
     {% endif %}
   </div>
 </div>
+{% if show_destination_modal %}
+  <script>
+    (function () {
+      const modal = document.getElementById("destination-modal");
+      if (!modal) return;
+
+      const form = document.getElementById("destination-form");
+      const inputX = document.getElementById("destination-x");
+      const inputY = document.getElementById("destination-y");
+      const shipmentLabel = document.getElementById("destination-shipment");
+      const closeButtons = modal.querySelectorAll(".ups-modal-close, .ups-modal-cancel");
+
+      function closeModal() {
+        modal.hidden = true;
+      }
+
+      document.querySelectorAll(".ups-destination-edit").forEach((button) => {
+        button.addEventListener("click", () => {
+          form.action = button.dataset.action;
+          inputX.value = button.dataset.destX || "";
+          inputY.value = button.dataset.destY || "";
+          shipmentLabel.textContent = button.dataset.shipmentId || "";
+          modal.hidden = false;
+          inputX.focus();
+        });
+      });
+
+      closeButtons.forEach((button) => button.addEventListener("click", closeModal));
+      modal.addEventListener("click", (event) => {
+        if (event.target === modal) closeModal();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !modal.hidden) closeModal();
+      });
+    })();
+  </script>
+{% endif %}
 {% endblock %}

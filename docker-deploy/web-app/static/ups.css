@@ -137,6 +137,15 @@ a:hover {
   background: var(--ups-gold-hover);
 }
 
+.ups-btn-outline {
+  background: var(--ups-white);
+  color: var(--ups-brown) !important;
+  border: 1px solid var(--ups-gold);
+}
+.ups-btn-outline:hover {
+  background: #fff7df;
+}
+
 .ups-btn-ghost {
   background: transparent;
   color: var(--ups-white) !important;
@@ -314,6 +323,27 @@ a:hover {
   padding: 1rem 1.1rem;
 }
 
+.ups-package-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ups-package-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.ups-package-actions .ups-btn {
+  padding: 0.45rem 0.8rem;
+  font-size: 0.82rem;
+}
+
 .ups-package-card strong {
   color: var(--ups-brown);
 }
@@ -364,4 +394,69 @@ table.ups-table tr:nth-child(even) {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 1rem;
+}
+
+.ups-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(26, 14, 10, 0.45);
+}
+
+.ups-modal-backdrop[hidden] {
+  display: none;
+}
+
+.ups-modal-window {
+  width: min(100%, 440px);
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  background: var(--ups-white);
+  border: 1px solid var(--ups-border);
+  border-radius: var(--ups-radius);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.22);
+}
+
+.ups-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.95rem 1.1rem;
+  background: var(--ups-brown);
+  color: var(--ups-white);
+}
+
+.ups-modal-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ups-modal-close {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ups-white);
+  font: inherit;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ups-modal-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ups-modal-window .ups-form {
+  padding: 1rem 1.1rem 1.15rem;
+}
+
+.ups-modal-window .ups-form input[type="number"] {
+  max-width: none;
 }

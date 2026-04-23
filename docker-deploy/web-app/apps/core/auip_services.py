@@ -1,4 +1,5 @@
 import logging
+import time
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -7,7 +8,7 @@ from django.db.models import Case, IntegerField, Value, When
 from apps.interop.services import amazon_client
 
 from . import auip_states as S
-from .models import Package, Truck
+from .models import DestinationUpdate, Package, Truck
 from .services import (
     ShipmentNotFoundError,
     ShipmentStateError,
@@ -528,6 +529,40 @@ def auip_update_destination(shipment_id: str, x: int, y: int, reason: str) -> Pa
     p.dest_y = int(y)
     p.status = S.UPDATED
     p.save(update_fields=["dest_x", "dest_y", "status"])
+    return p
+
+
+@transaction.atomic
+def update_destination_for_owner(shipment_id: str, user, x: int, y: int) -> Package:
+    p = Package.objects.select_for_update().filter(shipment_id=shipment_id).first()
+    if p is None:
+        raise ShipmentNotFoundError("Unknown shipment_id.")
+    if p.user_id != user.id:
+        raise ShipmentStateError("Only the package owner can update the destination.")
+    if p.status == S.DELIVERED:
+        raise ShipmentStateError("Delivered packages cannot be redirected.")
+
+    update_fields = ["dest_x", "dest_y"]
+    p.dest_x = int(x)
+    p.dest_y = int(y)
+
+    if p.status in (S.LOADED, S.OUT_FOR_DELIVERY):
+        if p.truck_id is None:
+            raise ShipmentStateError("Loaded package has no assigned truck.")
+        if p.world_package_id is None:
+            raise ShipmentStateError("Loaded package has no World package id.")
+        # Clearing delivery_seqnum puts this package back in the daemon's
+        # delivery retry pool, so the current truck receives a fresh UGoDeliver.
+        p.delivery_seqnum = None
+        update_fields.append("delivery_seqnum")
+
+    p.save(update_fields=update_fields)
+    DestinationUpdate.objects.create(
+        shipment=p,
+        x=int(x),
+        y=int(y),
+        update_time=int(time.time()),
+    )
     return p
 
 
