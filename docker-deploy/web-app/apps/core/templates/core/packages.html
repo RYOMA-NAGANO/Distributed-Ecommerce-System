@@ -30,14 +30,14 @@
         {% for package in packages %}
           <article class="ups-package-card">
             <div class="ups-package-card-head">
-              <div>
+              <div class="ups-package-summary">
                 <strong>{{ package.shipment_id }}</strong>
                 <span class="ups-status">{{ package.status }}</span>
-              </div>
-              <div class="ups-package-actions">
                 {% if package.truck %}
                   <span class="ups-muted">Truck #{{ package.truck.truck_id }}</span>
                 {% endif %}
+              </div>
+              <div class="ups-package-actions">
                 {% if package.user_id == request.user.id and package.status != "delivered" %}
                   <button
                     type="button"
@@ -61,7 +61,6 @@
           <div class="ups-modal-window" role="dialog" aria-modal="true" aria-labelledby="destination-modal-title">
             <div class="ups-modal-head">
               <h2 id="destination-modal-title">Edit destination</h2>
-              <button type="button" class="ups-modal-close" aria-label="Close destination editor">&times;</button>
             </div>
             <form method="post" class="ups-form" id="destination-form">
               {% csrf_token %}

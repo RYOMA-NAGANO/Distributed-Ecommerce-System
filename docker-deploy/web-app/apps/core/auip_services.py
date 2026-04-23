@@ -8,7 +8,7 @@ from django.db.models import Case, IntegerField, Value, When
 from apps.interop.services import amazon_client
 
 from . import auip_states as S
-from .models import DestinationUpdate, Package, Truck
+from .models import DestinationUpdate, Package, PositionUpdate, Truck
 from .services import (
     ShipmentNotFoundError,
     ShipmentStateError,
@@ -51,6 +51,24 @@ def get_interop_user():
 
 def _get_pkg(shipment_id: str) -> Package | None:
     return Package.objects.filter(shipment_id=shipment_id).first()
+
+
+def _record_destination_update(package: Package, x: int, y: int) -> None:
+    DestinationUpdate.objects.create(
+        shipment=package,
+        x=int(x),
+        y=int(y),
+        update_time=int(time.time()),
+    )
+
+
+def _record_position_update(package: Package, x: int, y: int) -> None:
+    PositionUpdate.objects.create(
+        shipment=package,
+        x=int(x),
+        y=int(y),
+        update_time=int(time.time()),
+    )
 
 
 def _ensure_unique_world_package_id(*, shipment_id: str, world_id: int, world_package_id: int) -> None:
@@ -222,7 +240,7 @@ def auip_create_shipment(payload: dict) -> Package:
         world_package_id=int(wp),
     )
 
-    return Package.objects.create(
+    package = Package.objects.create(
         shipment_id=shipment_id,
         world_id=world_id,
         amazon_order_id=str(payload.get("amazon_order_id") or ""),
@@ -237,6 +255,8 @@ def auip_create_shipment(payload: dict) -> Package:
         world_package_id=wp,
         status=S.CREATED,
     )
+    _record_destination_update(package, package.dest_x, package.dest_y)
+    return package
 
 
 @transaction.atomic
@@ -278,12 +298,19 @@ def auip_mark_ready(shipment_id: str, warehouse_id: int, world_id: int) -> Packa
         raise ShipmentStateError(f"ready not allowed in state {p.status}")
     if p.status not in (S.CREATED, S.TRUCK_EN_ROUTE, S.TRUCK_ARRIVED):
         raise ShipmentStateError(f"ready not allowed in state {p.status}")
+    should_record_warehouse_position = not PositionUpdate.objects.filter(
+        shipment=p,
+        x=int(p.warehouse_x),
+        y=int(p.warehouse_y),
+    ).exists()
     # If truck is already at warehouse, keep that stronger state.
     if p.status == S.TRUCK_ARRIVED:
         p.status = S.TRUCK_ARRIVED
     else:
         p.status = S.PACKED
     p.save(update_fields=["status"])
+    if should_record_warehouse_position:
+        _record_position_update(p, p.warehouse_x, p.warehouse_y)
     return p
 
 
@@ -529,6 +556,7 @@ def auip_update_destination(shipment_id: str, x: int, y: int, reason: str) -> Pa
     p.dest_y = int(y)
     p.status = S.UPDATED
     p.save(update_fields=["dest_x", "dest_y", "status"])
+    _record_destination_update(p, p.dest_x, p.dest_y)
     return p
 
 
@@ -557,12 +585,7 @@ def update_destination_for_owner(shipment_id: str, user, x: int, y: int) -> Pack
         update_fields.append("delivery_seqnum")
 
     p.save(update_fields=update_fields)
-    DestinationUpdate.objects.create(
-        shipment=p,
-        x=int(x),
-        y=int(y),
-        update_time=int(time.time()),
-    )
+    _record_destination_update(p, p.dest_x, p.dest_y)
     return p
 
 

@@ -283,6 +283,11 @@ class Command(BaseCommand):
         if not packages.exists():
             return
 
+        self._record_truck_package_positions(
+            truck_id=truck_id,
+            x=int(finished.x),
+            y=int(finished.y),
+        )
         arrived_at_wh = ("WH" in status) or ("WAREHOUSE" in status)
 
         if arrived_at_wh:
@@ -349,6 +354,28 @@ class Command(BaseCommand):
             truck_id=truck_id,
         ).only("shipment_id"):
             PositionUpdate.objects.create(shipment_id=package.shipment_id, x=x, y=y, update_time=now_epoch)
+
+    def _record_truck_package_positions(self, truck_id: int, x: int, y: int):
+        if self._current_world_id is None:
+            return
+        now_epoch = int(time.time())
+        package_ids = list(
+            Package.objects.filter(
+                world_id=int(self._current_world_id),
+                truck_id=int(truck_id),
+            ).values_list("shipment_id", flat=True)
+        )
+        PositionUpdate.objects.bulk_create(
+            [
+                PositionUpdate(
+                    shipment_id=shipment_id,
+                    x=int(x),
+                    y=int(y),
+                    update_time=now_epoch,
+                )
+                for shipment_id in package_ids
+            ]
+        )
 
     def _handle_u_err(self, err_msg):
         if self._current_world_id is None:
