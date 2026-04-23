@@ -42,39 +42,68 @@ class WorldClient:
 
         Returns the world_id assigned by the simulator.
         """
-        sock = self._connect_socket()
-        sock.settimeout(None)
+        # When joining an existing world created by UPS, Amazon may still need to
+        # register its warehouses. Try with initwh first; if World rejects that
+        # (for example because warehouses already exist), fall back to join-only.
+        if world_id is None:
+            attempts = [True]
+        else:
+            attempts = [True, False]
 
+        last_error = None
+        for include_warehouses in attempts:
+            sock = self._connect_socket()
+            sock.settimeout(None)
+
+            req = self._build_connect_request(
+                world_id=world_id,
+                warehouses=warehouses,
+                include_warehouses=include_warehouses,
+            )
+
+            send_message(sock, req)
+            resp = recv_message(sock, AConnected)
+
+            if resp.result == "connected!":
+                self._sock = sock
+                self._connected = True
+                logger.info(
+                    "Connected to world %d (include_warehouses=%s)",
+                    resp.worldid,
+                    include_warehouses,
+                )
+
+                self._recv_thread = threading.Thread(
+                    target=self._recv_loop, name="world-recv", daemon=True
+                )
+                self._recv_thread.start()
+                return resp.worldid
+
+            last_error = resp.result
+            sock.close()
+            logger.warning(
+                "World connect rejected (include_warehouses=%s): %s",
+                include_warehouses,
+                resp.result,
+            )
+
+        raise ConnectionError(f"World rejected connection: {last_error}")
+
+    @staticmethod
+    def _build_connect_request(world_id, warehouses, include_warehouses: bool) -> AConnect:
         req = AConnect()
         req.isAmazon = True
         if world_id is not None:
             req.worldid = world_id
-            # Rejoining existing world — do not re-register warehouses
-        else:
-            # Creating new world — initialize warehouses
+
+        if include_warehouses:
             for wh_id, x, y in warehouses:
                 wh = req.initwh.add()
                 wh.id = wh_id
                 wh.x = x
                 wh.y = y
 
-        send_message(sock, req)
-        resp = recv_message(sock, AConnected)
-
-        if resp.result != "connected!":
-            sock.close()
-            raise ConnectionError(f"World rejected connection: {resp.result}")
-
-        self._sock = sock
-        self._connected = True
-        logger.info("Connected to world %d", resp.worldid)
-
-        self._recv_thread = threading.Thread(
-            target=self._recv_loop, name="world-recv", daemon=True
-        )
-        self._recv_thread.start()
-
-        return resp.worldid
+        return req
 
     def _connect_socket(self):
         last_error = None

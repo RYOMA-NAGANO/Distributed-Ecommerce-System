@@ -14,7 +14,12 @@ from store.models import (
     ShipmentStatus,
     Warehouse,
 )
-from store.services.ups_client import UpsClientError, create_shipment, request_pickup
+from store.services.ups_client import (
+    UpsClientError,
+    create_shipment,
+    fetch_world_id,
+    request_pickup,
+)
 
 DEFAULT_WAREHOUSE_ID = int(os.getenv("DEFAULT_WAREHOUSE_ID", "1"))
 DEFAULT_WAREHOUSE_X = int(os.getenv("DEFAULT_WAREHOUSE_X", "2"))
@@ -109,6 +114,20 @@ def _get_default_warehouse() -> Warehouse:
         )
         return warehouse
 
+    try:
+        world_id = fetch_world_id()
+        warehouse, _ = Warehouse.objects.get_or_create(
+            world_id=world_id,
+            warehouse_id=DEFAULT_WAREHOUSE_ID,
+            defaults={
+                "x": DEFAULT_WAREHOUSE_X,
+                "y": DEFAULT_WAREHOUSE_Y,
+            },
+        )
+        return warehouse
+    except UpsClientError:
+        pass
+
     existing = Warehouse.objects.filter(
         warehouse_id=DEFAULT_WAREHOUSE_ID,
         world_id__gt=0,
@@ -120,12 +139,7 @@ def _get_default_warehouse() -> Warehouse:
     if existing:
         return existing
 
-    return Warehouse.objects.create(
-        world_id=1,
-        warehouse_id=DEFAULT_WAREHOUSE_ID,
-        x=DEFAULT_WAREHOUSE_X,
-        y=DEFAULT_WAREHOUSE_Y,
-    )
+    raise UpsClientError("No usable world_id is available from UPS and no warehouse is persisted locally.")
 
 
 def _generate_shipment_id(*, world_id: int) -> str:

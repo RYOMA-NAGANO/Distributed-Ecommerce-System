@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 
@@ -14,6 +16,7 @@ from .services import (
 )
 
 INTEROP_USER = "_amazon_interop"
+logger = logging.getLogger(__name__)
 
 
 def get_interop_user():
@@ -99,8 +102,8 @@ def auip_mark_ready(shipment_id: str, warehouse_id: int, world_id: int) -> Packa
         return p
     if p.status in S.READY_BLOCKED:
         raise ShipmentStateError(f"ready not allowed in state {p.status}")
-    if p.status != S.TRUCK_ARRIVED:
-        raise ShipmentStateError(f"Shipment must be truck_arrived before ready: {p.status}")
+    if p.status not in (S.CREATED, S.TRUCK_EN_ROUTE, S.TRUCK_ARRIVED):
+        raise ShipmentStateError(f"ready not allowed in state {p.status}")
     p.status = S.PACKED
     p.save(update_fields=["status"])
     return p
@@ -116,6 +119,62 @@ def auip_try_send_load_request_and_loading(package: Package) -> None:
         if p and p.status == S.PACKED:
             p.status = S.LOADING
             p.save(update_fields=["status"])
+
+
+def auip_try_send_load_request_when_possible(shipment_id: str) -> bool:
+    package = (
+        Package.objects.select_related("truck")
+        .filter(shipment_id=shipment_id)
+        .first()
+    )
+    if package is None:
+        return False
+    if package.status != S.PACKED:
+        return False
+    if package.truck_id is None:
+        return False
+    if package.truck is None or package.truck.truck_status != Truck.TruckStatus.LOADING:
+        return False
+
+    auip_try_send_load_request_and_loading(package)
+    refreshed = Package.objects.only("status").filter(shipment_id=shipment_id).first()
+    return bool(refreshed and refreshed.status == S.LOADING)
+
+
+def auip_retry_pending_load_requests(limit: int = 20) -> None:
+    shipment_ids = list(
+        Package.objects.select_related("truck")
+        .filter(
+            status=S.PACKED,
+            truck__truck_status=Truck.TruckStatus.LOADING,
+        )
+        .values_list("shipment_id", flat=True)[:limit]
+    )
+    for shipment_id in shipment_ids:
+        auip_try_send_load_request_when_possible(shipment_id)
+
+
+def auip_reconcile_truck_arrivals(limit: int = 20) -> None:
+    """
+    Self-heal cases where world truck already reached warehouse (LOADING),
+    but package still remains truck_en_route due missed/mismatched completion handling.
+    """
+    candidates = list(
+        Package.objects.select_related("truck")
+        .filter(
+            status__in=[S.TRUCK_EN_ROUTE, S.PACKED],
+            truck__truck_status=Truck.TruckStatus.LOADING,
+        )
+        .values("truck_id", "warehouse_x", "warehouse_y")
+        .distinct()[:limit]
+    )
+    for row in candidates:
+        auip_set_truck_arrived_for_truck(
+            int(row["truck_id"]),
+            int(row["warehouse_x"]),
+            int(row["warehouse_y"]),
+            pickup_seqnum=None,
+        )
 
 
 @transaction.atomic
@@ -173,20 +232,43 @@ def auip_update_destination(shipment_id: str, x: int, y: int, reason: str) -> Pa
 def auip_set_truck_arrived_for_truck(
     truck_id: int, location_x: int, location_y: int, pickup_seqnum: int | None = None
 ):
-    qs = Package.objects.select_for_update().filter(
+    base_qs = Package.objects.select_for_update().filter(
         truck_id=truck_id,
-        status=S.TRUCK_EN_ROUTE,
+        status__in=[S.TRUCK_EN_ROUTE, S.PACKED],
         pickup_seqnum__isnull=False,
     )
+    qs = base_qs
     if pickup_seqnum is not None:
-        qs = qs.filter(pickup_seqnum=int(pickup_seqnum))
+        by_seq_qs = base_qs.filter(pickup_seqnum=int(pickup_seqnum))
+        if by_seq_qs.exists():
+            qs = by_seq_qs
+        else:
+            # World completion seqnum is not guaranteed to equal command seqnum.
+            logger.warning(
+                "pickup completion seqnum mismatch for truck=%s seq=%s; "
+                "falling back to truck-level matching",
+                truck_id,
+                pickup_seqnum,
+            )
+
+    updated_count = 0
     for package in qs:
-        package.status = S.TRUCK_ARRIVED
-        package.save(update_fields=["status"])
+        if package.status == S.TRUCK_EN_ROUTE:
+            package.status = S.TRUCK_ARRIVED
+            package.save(update_fields=["status"])
+        updated_count += 1
         try:
             amazon_client.notify_truck_arrived(package, location_x, location_y)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "notify_truck_arrived failed for shipment=%s truck=%s: %s",
+                package.shipment_id,
+                truck_id,
+                exc,
+            )
+        if package.status == S.PACKED:
+            auip_try_send_load_request_when_possible(package.shipment_id)
+    return updated_count
 
 
 def mark_package_loaded_for_delivery(shipment_id, restrict_to_user=None):

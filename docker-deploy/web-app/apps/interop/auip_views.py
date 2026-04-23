@@ -1,20 +1,19 @@
-from django.db import transaction
 from rest_framework import status
 from rest_framework.response import Response
 
-from apps.core import auip_states as S
 from apps.core.auip_services import (
     auip_confirm_loaded,
     auip_create_shipment,
     auip_get_shipment_dict,
     auip_mark_ready,
+    auip_try_send_load_request_when_possible,
     auip_request_pickup,
     auip_update_destination,
 )
 from apps.core.models import Package
 from apps.core.services import NoAvailableTruckError, ShipmentNotFoundError, ShipmentStateError
 from apps.interop.idempotency import check_idempotency, save_idempotency
-from apps.interop.services import amazon_client
+from apps.interop.services.world_binding import get_world_binding
 
 from .auip_auth import InteropAPIView
 
@@ -154,15 +153,7 @@ class ShipmentReadyView(InteropAPIView):
         except ShipmentStateError as exc:
             return _err("INVALID_STATE", str(exc), shipment_id, 409)
 
-        try:
-            amazon_client.notify_load_request(package)
-            with transaction.atomic():
-                p2 = Package.objects.select_for_update().filter(shipment_id=shipment_id).first()
-                if p2 and p2.status == S.PACKED:
-                    p2.status = S.LOADING
-                    p2.save(update_fields=["status"])
-        except Exception:
-            pass
+        auip_try_send_load_request_when_possible(shipment_id)
 
         body = {
             "shipment_id": package.shipment_id,
@@ -244,4 +235,17 @@ class ShipmentDestinationView(InteropAPIView):
             "world_id": int(package.world_id),
         }
         save_idempotency(request, status.HTTP_200_OK, body)
+        return Response(body, status=status.HTTP_200_OK)
+
+
+class WorldBindingView(InteropAPIView):
+    def get(self, request):
+        binding = get_world_binding()
+        if binding is None:
+            return _err("WORLD_NOT_READY", "UPS has not established a World connection yet.", http_status=503)
+        body = {
+            "world_id": int(binding.world_id),
+            "result": binding.result,
+            "updated_at": binding.updated_at.isoformat(),
+        }
         return Response(body, status=status.HTTP_200_OK)

@@ -19,6 +19,14 @@ class UpsClientError(Exception):
         self.response_body = response_body
 
 
+def fetch_world_id() -> int:
+    response = _get_json("/world", expected_statuses={200})
+    world_id = response.get("world_id")
+    if world_id is None:
+        raise UpsClientError("UPS /world response missing world_id", response_body=response)
+    return int(world_id)
+
+
 def create_shipment(shipment: Shipment) -> dict:
     payload = {
         "shipment_id": shipment.shipment_id,
@@ -160,4 +168,46 @@ def _post_json(path: str, payload: dict, *, shipment: Shipment | None, expected_
         record.response_body = {"detail": str(exc.reason)}
         record.processed_at = timezone.now()
         record.save(update_fields=["response_status", "response_body", "processed_at", "updated_at"])
+        raise UpsClientError(f"UPS request failed: {exc.reason}") from exc
+
+
+def _get_json(path: str, *, expected_statuses: set[int]) -> dict:
+    ups_base_url = (getattr(settings, "UPS_BASE_URL", "") or "").rstrip("/")
+    ups_interop_secret = (getattr(settings, "UPS_INTEROP_SECRET", "") or "").strip()
+    if not ups_base_url:
+        raise UpsClientError("UPS_BASE_URL is not configured")
+
+    headers = {}
+    if ups_interop_secret:
+        headers["Authorization"] = f"Bearer {ups_interop_secret}"
+
+    req = request.Request(
+        urljoin(f"{ups_base_url}/", path.lstrip("/")),
+        headers=headers,
+        method="GET",
+    )
+    try:
+        timeout_seconds = int(getattr(settings, "UPS_TIMEOUT_SECONDS", REQUEST_TIMEOUT_SECONDS))
+        with request.urlopen(req, timeout=timeout_seconds) as response:
+            response_body = response.read().decode("utf-8")
+            parsed_body = json.loads(response_body) if response_body else {}
+            if response.status not in expected_statuses:
+                raise UpsClientError(
+                    f"Unexpected UPS status {response.status}",
+                    status_code=response.status,
+                    response_body=parsed_body,
+                )
+            return parsed_body
+    except error.HTTPError as exc:
+        raw_body = exc.read().decode("utf-8")
+        try:
+            parsed_body = json.loads(raw_body) if raw_body else {}
+        except json.JSONDecodeError:
+            parsed_body = {"detail": raw_body}
+        raise UpsClientError(
+            f"UPS request failed with status {exc.code}",
+            status_code=exc.code,
+            response_body=parsed_body,
+        ) from exc
+    except error.URLError as exc:
         raise UpsClientError(f"UPS request failed: {exc.reason}") from exc

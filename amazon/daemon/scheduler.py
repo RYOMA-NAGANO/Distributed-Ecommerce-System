@@ -31,7 +31,7 @@ class Scheduler:
         self._ups_notify = ups_notify or (lambda event, sid: None)
         self._world_id = world_id
 
-        self._pending_buys = {}    # seqnum -> shipment_id
+        self._pending_buys = {}    # seqnum -> buy metadata (shipment_id, warehouse_id, items)
         self._pending_packs = {}   # seqnum -> shipment_id
         self._pending_loads = {}   # seqnum -> shipment_id
         self._processed_world_seqnums = set()
@@ -57,11 +57,41 @@ class Scheduler:
         # Process acks first.
         self._ack.ack_many(resp.acks)
         world_response_acks = []
+        if (
+            resp.acks
+            or resp.arrived
+            or resp.ready
+            or resp.loaded
+            or resp.error
+            or resp.packagestatus
+        ):
+            logger.info(
+                "world resp: acks=%d arrived=%d ready=%d loaded=%d errors=%d packagestatus=%d",
+                len(resp.acks),
+                len(resp.arrived),
+                len(resp.ready),
+                len(resp.loaded),
+                len(resp.error),
+                len(resp.packagestatus),
+            )
+        ready_from_buy_acks = inventory_worker.handle_buy_acks(
+            resp.acks,
+            self._pending_buys,
+            self._world_id,
+        )
+        for sid in ready_from_buy_acks:
+            self._advance_to_packing(sid)
 
         for arrived in resp.arrived:
             world_response_acks.append(arrived.seqnum)
             if self._already_processed(arrived.seqnum):
                 continue
+            logger.info(
+                "world arrived: wh=%s seq=%s products=%s",
+                arrived.whnum,
+                arrived.seqnum,
+                [thing.id for thing in arrived.things],
+            )
 
             ready_ids = inventory_worker.handle_arrived(arrived, self._pending_buys, self._world_id)
             for sid in ready_ids:

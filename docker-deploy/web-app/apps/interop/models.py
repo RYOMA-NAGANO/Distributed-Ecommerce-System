@@ -33,3 +33,18 @@ class IdempotencyRecord(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["key", "method", "path"], name="interop_idem_key_method_path"),
         ]
+
+
+class WorldBinding(models.Model):
+    """
+    Singleton row with the active World simulator id chosen by UPS.
+    Amazon can read this through the interop API to join the same world.
+    """
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1)
+    world_id = models.BigIntegerField()
+    result = models.CharField(max_length=64, blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "interop_world_binding"

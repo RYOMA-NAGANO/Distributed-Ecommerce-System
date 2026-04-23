@@ -20,10 +20,11 @@ def process_created_shipments(world_client, ack_mgr, pending_buys: dict, world_i
       - If inventory is sufficient: reserve stock and advance to PACKING.
       - If not: issue APurchaseMore for the shortfall, stay in CREATED.
 
-    pending_buys: shared dict  seqnum -> shipment_id  maintained by caller.
+    pending_buys: shared dict seqnum -> {"shipment_id", "warehouse_id", "items"}.
+    Maintained by caller.
     Called periodically from the scheduler loop.
     """
-    already_pending = set(pending_buys.values())
+    already_pending = {entry["shipment_id"] for entry in pending_buys.values()}
     shipments = Shipment.objects.filter(
         status=ShipmentStatus.CREATED
     )
@@ -98,7 +99,18 @@ def _issue_buy(shipment, warehouse, shortfall, world_client, ack_mgr, pending_bu
 
     world_client.send(cmd)
     ack_mgr.register(seqnum, cmd)
-    pending_buys[seqnum] = shipment.shipment_id
+    pending_buys[seqnum] = {
+        "shipment_id": shipment.shipment_id,
+        "warehouse_id": warehouse.warehouse_id,
+        "items": [
+            {
+                "product_id": int(product.product_id),
+                "description": _world_description(description),
+                "count": int(count),
+            }
+            for product, description, count in shortfall
+        ],
+    }
 
     logger.info(
         "issued buy for shipment %s, seqnum=%d, shortfall=%s",
@@ -106,6 +118,55 @@ def _issue_buy(shipment, warehouse, shortfall, world_client, ack_mgr, pending_bu
         seqnum,
         [(p.product_id, c) for p, _, c in shortfall],
     )
+
+
+def handle_buy_acks(ack_seqnums, pending_buys: dict, world_id: int = None) -> list[str]:
+    """
+    World ACK means the purchase command was accepted and applied.
+    Mirror purchased quantities into local inventory so CREATED shipments can progress.
+    """
+    ready: list[str] = []
+    for seq in ack_seqnums:
+        entry = pending_buys.pop(int(seq), None)
+        if not entry:
+            continue
+
+        with transaction.atomic():
+            qs = Warehouse.objects.filter(warehouse_id=int(entry["warehouse_id"]))
+            if world_id is not None:
+                qs = qs.filter(world_id=world_id)
+            warehouse = qs.first()
+            if warehouse is None:
+                logger.error(
+                    "handle_buy_acks: warehouse %s not found for seq=%s",
+                    entry["warehouse_id"],
+                    seq,
+                )
+                continue
+
+            for item in entry["items"]:
+                product, _ = Product.objects.get_or_create(
+                    product_id=int(item["product_id"]),
+                    defaults={"description": item["description"]},
+                )
+                inv, _ = Inventory.objects.get_or_create(
+                    warehouse=warehouse,
+                    product=product,
+                    defaults={"on_hand_count": 0, "reserved_count": 0},
+                )
+                Inventory.objects.filter(pk=inv.pk).update(
+                    on_hand_count=F("on_hand_count") + int(item["count"])
+                )
+                logger.info(
+                    "buy-ack inventory sync: warehouse=%d product=%d +%d (seq=%s)",
+                    warehouse.warehouse_id,
+                    int(item["product_id"]),
+                    int(item["count"]),
+                    seq,
+                )
+
+        ready.append(entry["shipment_id"])
+    return ready
 
 
 def handle_arrived(arrived: APurchaseMore, pending_buys: dict, world_id: int = None) -> list[str]:
@@ -120,7 +181,8 @@ def handle_arrived(arrived: APurchaseMore, pending_buys: dict, world_id: int = N
     arrived_product_ids = frozenset(thing.id for thing in arrived.things)
     shipment_id = None
     matched_seqnum = None
-    for seq, sid in list(pending_buys.items()):
+    for seq, entry in list(pending_buys.items()):
+        sid = entry["shipment_id"]
         try:
             s = Shipment.objects.get(shipment_id=sid)
             item_product_ids = frozenset(
@@ -133,8 +195,16 @@ def handle_arrived(arrived: APurchaseMore, pending_buys: dict, world_id: int = N
         except Shipment.DoesNotExist:
             pending_buys.pop(seq, None)
 
-    if matched_seqnum is not None:
-        pending_buys.pop(matched_seqnum, None)
+    if matched_seqnum is None:
+        logger.info(
+            "arrived ignored (no pending buy match): wh=%s seq=%s products=%s",
+            arrived.whnum,
+            arrived.seqnum,
+            list(arrived_product_ids),
+        )
+        return []
+
+    pending_buys.pop(matched_seqnum, None)
 
     with transaction.atomic():
         qs = Warehouse.objects.filter(warehouse_id=arrived.whnum)

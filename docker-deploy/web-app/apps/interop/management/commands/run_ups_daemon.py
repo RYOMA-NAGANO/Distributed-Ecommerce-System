@@ -6,10 +6,15 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from apps.core import auip_states as S
-from apps.core.auip_services import auip_set_truck_arrived_for_truck
+from apps.core.auip_services import (
+    auip_reconcile_truck_arrivals,
+    auip_retry_pending_load_requests,
+    auip_set_truck_arrived_for_truck,
+)
 from apps.core.models import Package, PositionUpdate, Truck
 from apps.interop.services import amazon_client
 from apps.interop.services.seqnum import allocate_next_seqnum
+from apps.interop.services.world_binding import set_world_binding
 
 
 class Command(BaseCommand):
@@ -63,6 +68,7 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"worldid={result.world_id}")
         self.stdout.write(f"result={result.result}")
+        set_world_binding(result.world_id, result.result)
 
         last_idle_log = 0.0
 
@@ -75,6 +81,8 @@ class Command(BaseCommand):
 
         def maybe_enqueue_outbound():
             self._enqueue_pickups(session.sock, send_pickup)
+            auip_reconcile_truck_arrivals()
+            auip_retry_pending_load_requests()
             self._enqueue_deliveries(session.sock, send_deliver)
 
         def process_responses(responses):
@@ -90,6 +98,9 @@ class Command(BaseCommand):
 
                 for truck in responses.truckstatus:
                     self._handle_u_truck(truck)
+
+                for err in responses.error:
+                    self._handle_u_err(err)
 
             if acks:
                 send_acks_only(session.sock, acks)
@@ -202,15 +213,12 @@ class Command(BaseCommand):
         arrived_at_wh = ("WH" in status) or ("WAREHOUSE" in status)
 
         if arrived_at_wh:
+            Truck.objects.filter(truck_id=truck_id).update(truck_status=Truck.TruckStatus.LOADING)
             auip_set_truck_arrived_for_truck(
                 truck_id, int(finished.x), int(finished.y), pickup_seqnum=seq
             )
-
-        truck_updates = {"truck_status": Truck.TruckStatus.TRAVELING}
-        if arrived_at_wh:
-            truck_updates["truck_status"] = Truck.TruckStatus.LOADING
-
-        Truck.objects.filter(truck_id=truck_id).update(**truck_updates)
+        else:
+            Truck.objects.filter(truck_id=truck_id).update(truck_status=Truck.TruckStatus.TRAVELING)
 
     def _handle_u_delivery_made(self, delivered):
         world_package_id = int(delivered.packageid)
@@ -251,6 +259,58 @@ class Command(BaseCommand):
         now_epoch = int(time.time())
         for package in Package.objects.filter(truck_id=truck_id).only("shipment_id"):
             PositionUpdate.objects.create(shipment_id=package.shipment_id, x=x, y=y, update_time=now_epoch)
+
+    def _handle_u_err(self, err_msg):
+        origin_seq = int(err_msg.originseqnum)
+        detail = err_msg.err or "unknown world error"
+
+        pickup_pkg = (
+            Package.objects.select_related("truck")
+            .filter(pickup_seqnum=origin_seq)
+            .first()
+        )
+        if pickup_pkg is not None:
+            pickup_pkg.pickup_seqnum = None
+            pickup_pkg.status = S.TRUCK_EN_ROUTE
+            pickup_pkg.save(update_fields=["pickup_seqnum", "status"])
+            if pickup_pkg.truck_id is not None:
+                Truck.objects.filter(truck_id=pickup_pkg.truck_id).update(
+                    truck_status=Truck.TruckStatus.IDLE
+                )
+            self.stdout.write(
+                self.style.WARNING(
+                    f"World pickup error shipment={pickup_pkg.shipment_id} "
+                    f"origin_seq={origin_seq}: {detail}; will retry pickup."
+                )
+            )
+            return
+
+        delivery_pkg = (
+            Package.objects.select_related("truck")
+            .filter(delivery_seqnum=origin_seq)
+            .first()
+        )
+        if delivery_pkg is not None:
+            delivery_pkg.delivery_seqnum = None
+            delivery_pkg.status = S.LOADED
+            delivery_pkg.save(update_fields=["delivery_seqnum", "status"])
+            if delivery_pkg.truck_id is not None:
+                Truck.objects.filter(truck_id=delivery_pkg.truck_id).update(
+                    truck_status=Truck.TruckStatus.LOADING
+                )
+            self.stdout.write(
+                self.style.WARNING(
+                    f"World delivery error shipment={delivery_pkg.shipment_id} "
+                    f"origin_seq={origin_seq}: {detail}; will retry delivery."
+                )
+            )
+            return
+
+        self.stdout.write(
+            self.style.WARNING(
+                f"World error origin_seq={origin_seq}: {detail} (no matching package seqnum)"
+            )
+        )
 
     def _map_world_truck_status(self, status: str):
         upper = (status or "").upper()

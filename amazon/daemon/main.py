@@ -11,7 +11,12 @@ import django
 django.setup()
 
 from store.models import EventSource, ShipmentEvent, Warehouse
-from store.services.ups_client import UpsClientError, notify_loaded, notify_ready
+from store.services.ups_client import (
+    UpsClientError,
+    fetch_world_id,
+    notify_loaded,
+    notify_ready,
+)
 
 from ack_manager import AckManager
 from reconciliation import reconcile
@@ -34,12 +39,18 @@ _WAREHOUSES_ENV = [
 
 
 def _get_world_id():
-    """Return persisted world_id from DB, or None to create a new world."""
+    """Return world_id, preferring UPS's active world binding when available."""
+    configured = int((os.getenv("WORLD_ID", "0") or "0").strip())
+    if configured:
+        return configured
+    try:
+        return fetch_world_id()
+    except UpsClientError:
+        pass
     wh = Warehouse.objects.order_by("-id").first()
     if wh and wh.world_id:
         return wh.world_id
-    configured = int((os.getenv("WORLD_ID", "0") or "0").strip())
-    return configured or None
+    return None
 
 
 def _persist_world_id(world_id: int) -> None:
@@ -65,11 +76,14 @@ def main():
     scheduler = None
     ack_mgr = None
     client = None
-    force_new_world = False
 
     while True:
         try:
-            world_id_to_use = None if force_new_world else _get_world_id()
+            world_id_to_use = _get_world_id()
+            if world_id_to_use is None:
+                logger.info("UPS world_id is not available yet; retrying in 5s")
+                time.sleep(5)
+                continue
             buffered_responses = []
 
             def dispatch_world_response(resp):
@@ -83,7 +97,6 @@ def main():
                 world_id=world_id_to_use,
                 warehouses=_WAREHOUSES_ENV,
             )
-            force_new_world = False
             logger.info("World connected, world_id=%d", world_id)
             _persist_world_id(world_id)
 
@@ -114,8 +127,7 @@ def main():
         except ConnectionError as exc:
             err_msg = str(exc)
             if "is not available for amazon to connect" in err_msg:
-                logger.warning("World %s no longer exists, will create a new one", world_id_to_use)
-                force_new_world = True
+                logger.warning("World %s no longer exists, waiting for UPS world refresh", world_id_to_use)
             else:
                 logger.error("Connection error: %s — reconnecting in 10s", exc)
         except Exception as exc:

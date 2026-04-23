@@ -7,9 +7,12 @@ from .auip_views import (
     ShipmentLoadedView,
     ShipmentPickupView,
     ShipmentReadyView,
+    WorldBindingView,
 )
 
 urlpatterns = [
+    path("world", WorldBindingView.as_view(), name="auip-world-binding-noslash"),
+    path("world/", WorldBindingView.as_view(), name="auip-world-binding"),
     path("shipments", ShipmentCreateView.as_view(), name="auip-shipment-create-noslash"),
     path("shipments/", ShipmentCreateView.as_view(), name="auip-shipment-create"),
     path("shipments/<str:shipment_id>/pickup", ShipmentPickupView.as_view(), name="auip-shipment-pickup-noslash"),
