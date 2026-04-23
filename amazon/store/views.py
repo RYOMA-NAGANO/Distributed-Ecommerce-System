@@ -54,9 +54,6 @@ def product_list(request):
             product
             for product in filtered_products
             if lowered_query in product["name"].lower()
-            or lowered_query in product["description"].lower()
-            or lowered_query in product["category"].lower()
-            or lowered_query in product["product_id"].lower()
         ]
 
     paginator = Paginator(filtered_products, 10)
@@ -106,7 +103,10 @@ def order_detail(request, amazon_order_id):
         Order.objects.prefetch_related("shipments__items__product"),
         amazon_order_id=amazon_order_id,
     )
-    detail_context = _build_order_detail_context(order)
+    detail_context = _build_order_detail_context(
+        order,
+        event_page_number=request.GET.get("events_page"),
+    )
 
     if detail_context is None:
         return JsonResponse({"detail": "Shipment not found for order"}, status=404)
@@ -135,12 +135,16 @@ def tracking_lookup(request):
 
     recent_shipments = (
         Shipment.objects.select_related("order", "warehouse")
-        .order_by("-created_at")[:5]
+        .order_by("-created_at")
+    )
+    recent_shipments_page_obj = Paginator(recent_shipments, 5).get_page(
+        request.GET.get("shipments_page")
     )
     context = {
         "query": query,
         "lookup_error": lookup_error,
-        "recent_shipments": recent_shipments,
+        "recent_shipments": recent_shipments_page_obj.object_list,
+        "recent_shipments_page_obj": recent_shipments_page_obj,
     }
     return render(request, "store/tracking_lookup.html", context)
 
@@ -261,7 +265,7 @@ def _handle_callback_request(request, handler):
     return JsonResponse(response_body, status=response_status)
 
 
-def _build_order_detail_context(order: Order):
+def _build_order_detail_context(order: Order, event_page_number=None):
     shipment_model = order.shipments.select_related("warehouse").order_by("-created_at").first()
     if shipment_model is None:
         return None
@@ -289,10 +293,14 @@ def _build_order_detail_context(order: Order):
         "destination": f"({shipment_model.destination_x}, {shipment_model.destination_y})",
     }
 
+    shipment_events = shipment_model.events.order_by("-created_at", "-id")
+    shipment_events_page_obj = Paginator(shipment_events, 8).get_page(event_page_number)
+
     return {
         "order": order,
         "shipment": shipment,
         "shipment_items": shipment_items,
         "timeline_steps": build_timeline_steps(shipment_model.status),
-        "shipment_events": shipment_model.events.order_by("-created_at")[:8],
+        "shipment_events": shipment_events_page_obj.object_list,
+        "shipment_events_page_obj": shipment_events_page_obj,
     }

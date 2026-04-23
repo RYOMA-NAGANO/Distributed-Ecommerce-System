@@ -24,6 +24,12 @@
 
     <div class="panel" style="background: #f8fbfd;">
         <div class="eyebrow">Recent Shipments</div>
+        {% if recent_shipments_page_obj.paginator.count %}
+        <div class="muted" style="margin-bottom: 12px;">
+            Showing {{ recent_shipments_page_obj.start_index }}-{{ recent_shipments_page_obj.end_index }}
+            of {{ recent_shipments_page_obj.paginator.count }} shipments
+        </div>
+        {% endif %}
         {% if recent_shipments %}
         {% for shipment in recent_shipments %}
         <div class="item-row">
@@ -40,6 +46,41 @@
         {% endfor %}
         {% else %}
         <p class="muted" style="margin: 0;">No shipments yet. Place an order first and it will show up here.</p>
+        {% endif %}
+
+        {% if recent_shipments_page_obj.paginator.num_pages > 1 %}
+        <nav style="display: flex; justify-content: center; gap: 10px; margin-top: 24px; flex-wrap: wrap;">
+            {% if recent_shipments_page_obj.has_previous %}
+            <a
+                class="btn"
+                href="?{% if query %}query={{ query|urlencode }}&{% endif %}shipments_page={{ recent_shipments_page_obj.previous_page_number }}"
+            >
+                Previous
+            </a>
+            {% endif %}
+
+            {% for page_number in recent_shipments_page_obj.paginator.page_range %}
+                {% if page_number == recent_shipments_page_obj.number %}
+                <span class="btn btn-primary">{{ page_number }}</span>
+                {% else %}
+                <a
+                    class="btn"
+                    href="?{% if query %}query={{ query|urlencode }}&{% endif %}shipments_page={{ page_number }}"
+                >
+                    {{ page_number }}
+                </a>
+                {% endif %}
+            {% endfor %}
+
+            {% if recent_shipments_page_obj.has_next %}
+            <a
+                class="btn"
+                href="?{% if query %}query={{ query|urlencode }}&{% endif %}shipments_page={{ recent_shipments_page_obj.next_page_number }}"
+            >
+                Next
+            </a>
+            {% endif %}
+        </nav>
         {% endif %}
     </div>
 </section>
