@@ -1,6 +1,8 @@
 import logging
+import json
 
 from django.contrib.auth import get_user_model
+from django.conf import settings
 from django.db import transaction
 
 from apps.interop.services import amazon_client
@@ -8,7 +10,6 @@ from apps.interop.services import amazon_client
 from . import auip_states as S
 from .models import Package, Truck
 from .services import (
-    NoAvailableTruckError,
     ShipmentNotFoundError,
     ShipmentStateError,
     ensure_trucks_initialized,
@@ -17,6 +18,18 @@ from .services import (
 
 INTEROP_USER = "_amazon_interop"
 logger = logging.getLogger(__name__)
+_PICKUP_ELIGIBLE_TRUCK_STATUSES = (
+    Truck.TruckStatus.IDLE,
+    Truck.TruckStatus.ARRIVE_WAREHOUSE,
+    Truck.TruckStatus.DELIVERING,
+)
+_ACTIVE_PACKAGE_STATUSES = (
+    S.TRUCK_EN_ROUTE,
+    S.TRUCK_ARRIVED,
+    S.LOADING,
+    S.LOADED,
+    S.OUT_FOR_DELIVERY,
+)
 
 
 def get_interop_user():
@@ -25,6 +38,72 @@ def get_interop_user():
 
 def _get_pkg(shipment_id: str) -> Package | None:
     return Package.objects.filter(shipment_id=shipment_id).first()
+
+
+def _configured_truck_ids() -> list[int]:
+    try:
+        payload = json.loads(settings.UPS_TRUCKS)
+    except Exception:
+        return []
+    ids: list[int] = []
+    for row in payload:
+        try:
+            ids.append(int(row["id"]))
+        except Exception:
+            continue
+    return ids
+
+
+def _choose_truck_for_pickup(*, exclude_ids: set[int] | None = None) -> Truck | None:
+    qs = Truck.objects.select_for_update().filter(
+        truck_status__in=_PICKUP_ELIGIBLE_TRUCK_STATUSES
+    )
+    configured_ids = _configured_truck_ids()
+    if configured_ids:
+        qs = qs.filter(truck_id__in=configured_ids)
+    if exclude_ids:
+        qs = qs.exclude(truck_id__in=exclude_ids)
+    return qs.order_by("truck_id").first()
+
+
+def _allocate_next_truck(*, min_truck_id: int = 1) -> Truck:
+    """
+    Create a new local truck record using a monotonically increasing truck_id.
+    World-level id collision handling is done by pickup retry path on UErr.
+    """
+    floor = max(1, int(min_truck_id))
+    while True:
+        current_max = (
+            Truck.objects.select_for_update()
+            .order_by("-truck_id")
+            .values_list("truck_id", flat=True)
+            .first()
+            or 0
+        )
+        candidate = max(floor, int(current_max) + 1)
+        truck, created = Truck.objects.get_or_create(
+            truck_id=candidate,
+            defaults={"truck_status": Truck.TruckStatus.IDLE},
+        )
+        if created:
+            logger.info("allocated new truck_id=%s for pickup fallback", candidate)
+            return truck
+        floor = candidate + 1
+
+
+def _release_truck_if_orphaned(truck_id: int | None, *, exclude_shipment_id: str | None = None) -> None:
+    if not truck_id:
+        return
+    active = Package.objects.filter(
+        truck_id=truck_id,
+        status__in=_ACTIVE_PACKAGE_STATUSES,
+    )
+    if exclude_shipment_id:
+        active = active.exclude(shipment_id=exclude_shipment_id)
+    if not active.exists():
+        truck = Truck.objects.filter(truck_id=truck_id).only("truck_status").first()
+        if truck and truck.truck_status != Truck.TruckStatus.INVALID:
+            Truck.objects.filter(truck_id=truck_id).update(truck_status=Truck.TruckStatus.IDLE)
 
 
 @transaction.atomic
@@ -72,14 +151,9 @@ def auip_request_pickup(shipment_id: str, warehouse_id: int, world_id: int) -> P
     if p.truck_id is not None and p.status == S.TRUCK_EN_ROUTE:
         return p
 
-    truck = (
-        Truck.objects.select_for_update()
-        .filter(truck_status=Truck.TruckStatus.IDLE)
-        .order_by("truck_id")
-        .first()
-    )
+    truck = _choose_truck_for_pickup()
     if truck is None:
-        raise NoAvailableTruckError("No idle truck is available.")
+        truck = _allocate_next_truck()
 
     truck.truck_status = Truck.TruckStatus.TRAVELING
     truck.save(update_fields=["truck_status"])
@@ -133,7 +207,10 @@ def auip_try_send_load_request_when_possible(shipment_id: str) -> bool:
         return False
     if package.truck_id is None:
         return False
-    if package.truck is None or package.truck.truck_status != Truck.TruckStatus.LOADING:
+    if package.truck is None or package.truck.truck_status not in (
+        Truck.TruckStatus.ARRIVE_WAREHOUSE,
+        Truck.TruckStatus.LOADING,
+    ):
         return False
 
     auip_try_send_load_request_and_loading(package)
@@ -141,32 +218,37 @@ def auip_try_send_load_request_when_possible(shipment_id: str) -> bool:
     return bool(refreshed and refreshed.status == S.LOADING)
 
 
-def auip_retry_pending_load_requests(limit: int = 20) -> None:
-    shipment_ids = list(
-        Package.objects.select_related("truck")
-        .filter(
-            status=S.PACKED,
-            truck__truck_status=Truck.TruckStatus.LOADING,
-        )
-        .values_list("shipment_id", flat=True)[:limit]
+def auip_retry_pending_load_requests(limit: int = 20, world_id: int | None = None) -> None:
+    qs = Package.objects.select_related("truck").filter(
+        status=S.PACKED,
+        truck__truck_status__in=[
+            Truck.TruckStatus.ARRIVE_WAREHOUSE,
+            Truck.TruckStatus.LOADING,
+        ],
     )
+    if world_id is not None:
+        qs = qs.filter(world_id=int(world_id))
+    shipment_ids = list(qs.values_list("shipment_id", flat=True)[:limit])
     for shipment_id in shipment_ids:
         auip_try_send_load_request_when_possible(shipment_id)
 
 
-def auip_reconcile_truck_arrivals(limit: int = 20) -> None:
+def auip_reconcile_truck_arrivals(limit: int = 20, world_id: int | None = None) -> None:
     """
     Self-heal cases where world truck already reached warehouse (LOADING),
     but package still remains truck_en_route due missed/mismatched completion handling.
     """
+    qs = Package.objects.select_related("truck").filter(
+        status__in=[S.TRUCK_EN_ROUTE, S.PACKED],
+        truck__truck_status__in=[
+            Truck.TruckStatus.ARRIVE_WAREHOUSE,
+            Truck.TruckStatus.LOADING,
+        ],
+    )
+    if world_id is not None:
+        qs = qs.filter(world_id=int(world_id))
     candidates = list(
-        Package.objects.select_related("truck")
-        .filter(
-            status__in=[S.TRUCK_EN_ROUTE, S.PACKED],
-            truck__truck_status=Truck.TruckStatus.LOADING,
-        )
-        .values("truck_id", "warehouse_x", "warehouse_y")
-        .distinct()[:limit]
+        qs.values("truck_id", "warehouse_x", "warehouse_y").distinct()[:limit]
     )
     for row in candidates:
         auip_set_truck_arrived_for_truck(
@@ -175,6 +257,36 @@ def auip_reconcile_truck_arrivals(limit: int = 20) -> None:
             int(row["warehouse_y"]),
             pickup_seqnum=None,
         )
+
+
+@transaction.atomic
+def auip_rotate_pickup_truck(shipment_id: str) -> tuple[int | None, int | None]:
+    """
+    On pickup dispatch error, clear pickup seq and move shipment to another truck.
+    If no reusable truck is available, allocate a larger truck id and retry later.
+    Returns (old_truck_id, new_truck_id).
+    """
+    package = Package.objects.select_for_update().filter(shipment_id=shipment_id).first()
+    if package is None:
+        return None, None
+
+    old_truck_id = package.truck_id
+
+    # On pickup errors we must keep probing larger truck ids rather than
+    # bouncing among previously failed ids.
+    min_next = (int(old_truck_id) + 1) if old_truck_id else 1
+    truck = _allocate_next_truck(min_truck_id=min_next)
+
+    truck.truck_status = Truck.TruckStatus.TRAVELING
+    truck.save(update_fields=["truck_status"])
+
+    package.truck = truck
+    package.pickup_seqnum = None
+    package.status = S.TRUCK_EN_ROUTE
+    package.save(update_fields=["truck", "pickup_seqnum", "status"])
+
+    _release_truck_if_orphaned(old_truck_id, exclude_shipment_id=shipment_id)
+    return old_truck_id, int(truck.truck_id)
 
 
 @transaction.atomic
@@ -194,8 +306,6 @@ def auip_confirm_loaded(shipment_id: str, truck_id: int, warehouse_id: int, worl
         raise ShipmentStateError(f"loaded not allowed in state {p.status}")
     p.status = S.LOADED
     p.save(update_fields=["status"])
-    if p.truck_id is not None:
-        Truck.objects.filter(truck_id=p.truck_id).update(truck_status=Truck.TruckStatus.DELIVERING)
     return p
 
 
@@ -234,6 +344,8 @@ def auip_set_truck_arrived_for_truck(
 ):
     base_qs = Package.objects.select_for_update().filter(
         truck_id=truck_id,
+        warehouse_x=int(location_x),
+        warehouse_y=int(location_y),
         status__in=[S.TRUCK_EN_ROUTE, S.PACKED],
         pickup_seqnum__isnull=False,
     )

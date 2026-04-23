@@ -6,8 +6,10 @@ class Truck(models.Model):
     class TruckStatus(models.TextChoices):
         IDLE = "IDLE", "Idle"
         TRAVELING = "TRAVELING", "Traveling"
+        ARRIVE_WAREHOUSE = "ARRIVE_WAREHOUSE", "Arrive Warehouse"
         LOADING = "LOADING", "Loading"
         DELIVERING = "DELIVERING", "Delivering"
+        INVALID = "INVALID", "Invalid"
 
     truck_id = models.IntegerField(primary_key=True)
     truck_status = models.CharField(
