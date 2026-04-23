@@ -81,7 +81,15 @@
 
 <section class="panel" style="margin-top: 20px;">
     <div class="section-head">
-        <h2>Recent Shipment Events</h2>
+        <div>
+            <h2>Recent Shipment Events</h2>
+            {% if shipment_events_page_obj.paginator.count %}
+            <div class="muted" style="margin-top: 4px;">
+                Showing {{ shipment_events_page_obj.start_index }}-{{ shipment_events_page_obj.end_index }}
+                of {{ shipment_events_page_obj.paginator.count }} events
+            </div>
+            {% endif %}
+        </div>
     </div>
 
     {% if shipment_events %}
@@ -100,6 +108,30 @@
     {% endfor %}
     {% else %}
     <p class="muted" style="margin: 0;">No shipment events recorded yet.</p>
+    {% endif %}
+
+    {% if shipment_events_page_obj.paginator.num_pages > 1 %}
+    <nav style="display: flex; justify-content: center; gap: 10px; margin-top: 24px; flex-wrap: wrap;">
+        {% if shipment_events_page_obj.has_previous %}
+        <a class="btn" href="?events_page={{ shipment_events_page_obj.previous_page_number }}">
+            Previous
+        </a>
+        {% endif %}
+
+        {% for page_number in shipment_events_page_obj.paginator.page_range %}
+            {% if page_number == shipment_events_page_obj.number %}
+            <span class="btn btn-primary">{{ page_number }}</span>
+            {% else %}
+            <a class="btn" href="?events_page={{ page_number }}">{{ page_number }}</a>
+            {% endif %}
+        {% endfor %}
+
+        {% if shipment_events_page_obj.has_next %}
+        <a class="btn" href="?events_page={{ shipment_events_page_obj.next_page_number }}">
+            Next
+        </a>
+        {% endif %}
+    </nav>
     {% endif %}
 </section>
 {% endblock %}
