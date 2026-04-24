@@ -93,11 +93,21 @@ WORLD_ID = os.getenv("WORLD_ID", "")
 WORLD_RETRY_SECONDS = int(os.getenv("WORLD_RETRY_SECONDS", "5"))
 OUTBOUND_RETRY_SECONDS = int(os.getenv("OUTBOUND_RETRY_SECONDS", "5"))
 
-CSRF_TRUSTED_ORIGINS = [
+DEFAULT_CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "http://localhost:8001",
     "http://127.0.0.1:8001",
+    "http://*.vm.duke.edu:8000",
+    "http://*.vm.duke.edu:8001",
+]
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "DJANGO_CSRF_TRUSTED_ORIGINS",
+        ",".join(DEFAULT_CSRF_TRUSTED_ORIGINS),
+    ).split(",")
+    if origin.strip()
 ]
 
 # email settings
