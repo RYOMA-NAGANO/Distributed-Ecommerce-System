@@ -153,7 +153,6 @@ def product_detail(request, product_id):
                     quantity=form.cleaned_data["quantity"],
                     destination_x=form.cleaned_data["destination_x"],
                     destination_y=form.cleaned_data["destination_y"],
-                    ups_account=form.cleaned_data["ups_account"],
                 )
                 return redirect("order_detail", amazon_order_id=order.amazon_order_id)
             except Exception as exc:

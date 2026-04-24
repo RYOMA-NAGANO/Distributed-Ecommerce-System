@@ -80,14 +80,6 @@
                 {% endfor %}
             </div>
 
-            <div class="field-group">
-                <label for="{{ form.ups_account.id_for_label }}">UPS Account (Optional)</label>
-                {{ form.ups_account }}
-                {% for error in form.ups_account.errors %}
-                <div style="color: #b12704; font-size: 0.9rem;">{{ error }}</div>
-                {% endfor %}
-            </div>
-
             <button class="btn btn-primary" type="submit">Place Order</button>
         </form>
         {% endif %}

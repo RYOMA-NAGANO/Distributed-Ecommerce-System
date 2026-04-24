@@ -110,7 +110,6 @@ class Order(TimestampedModel):
     amazon_order_id = models.CharField(max_length=64, unique=True, db_index=True)
     requested_destination_x = models.IntegerField()
     requested_destination_y = models.IntegerField()
-    ups_account = models.CharField(max_length=64, blank=True)
 
     class Meta:
         ordering = ["-created_at"]

@@ -16,11 +16,6 @@ class CheckoutForm(forms.Form):
     )
     destination_x = forms.IntegerField(initial=9)
     destination_y = forms.IntegerField(initial=8)
-    ups_account = forms.CharField(
-        max_length=64,
-        required=False,
-        strip=True,
-    )
 
 
 class UserSignupForm(forms.ModelForm):

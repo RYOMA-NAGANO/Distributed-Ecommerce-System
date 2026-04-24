@@ -43,13 +43,12 @@ class OrderAdmin(admin.ModelAdmin):
     list_display = (
         "amazon_order_id",
         "user",
-        "ups_account",
         "requested_destination_x",
         "requested_destination_y",
         "created_at",
     )
     list_filter = ("user",)
-    search_fields = ("amazon_order_id", "ups_account", "user__username", "user__email")
+    search_fields = ("amazon_order_id", "user__username", "user__email")
 
 
 @admin.register(Shipment)
