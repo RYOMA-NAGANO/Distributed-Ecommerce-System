@@ -26,7 +26,11 @@ class AckManager:
         self._send_fn = send_fn
         self._lock = threading.Lock()
         self._pending = {}      # seqnum -> {cmd, retries, last_sent}
-        self._counter = 0
+        # World may keep enough connection/world state that reusing low seqnums
+        # after a daemon restart can produce confusing acks without the matching
+        # business response. Start from epoch milliseconds to avoid reuse across
+        # restarts without adding another persistence table.
+        self._counter = int(time.time() * 1000)
         self._running = False
         self._thread = None
 

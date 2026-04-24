@@ -106,7 +106,6 @@ def home(request):
     return render(request, "store/home.html", context)
 
 
-@login_required
 def product_list(request):
     search_query = request.GET.get("q", "").strip()
     filtered_products = get_catalog_products()
@@ -131,13 +130,14 @@ def product_list(request):
     return render(request, "store/product_list.html", context)
 
 
-@login_required
 def product_detail(request, product_id):
     product = get_catalog_product(product_id)
     if product is None:
         raise Http404("Product not found")
 
     if request.method == "POST":
+        if not request.user.is_authenticated:
+            return redirect(f"{reverse_lazy('login')}?next={request.path}")
         form = CheckoutForm(request.POST)
         if form.is_valid():
             try:
@@ -153,7 +153,10 @@ def product_detail(request, product_id):
                 logger.exception("Failed to create order for product %s", product_id)
                 form.add_error(None, f"Could not create order: {exc}")
     else:
-        form = CheckoutForm(initial={"ups_account": request.user.email})
+        initial = {}
+        if request.user.is_authenticated:
+            initial["ups_account"] = request.user.email
+        form = CheckoutForm(initial=initial)
 
     context = {
         "product": product,
@@ -162,6 +165,7 @@ def product_detail(request, product_id):
     return render(request, "store/product_detail.html", context)
 
 
+@login_required
 def order_detail(request, amazon_order_id):
     order = get_object_or_404(
         Order.objects.prefetch_related("shipments__items__product"),
@@ -177,6 +181,7 @@ def order_detail(request, amazon_order_id):
     return render(request, "store/order_detail.html", detail_context)
 
 
+@login_required
 def tracking_lookup(request):
     query = request.GET.get("query", "").strip()
     lookup_error = ""
