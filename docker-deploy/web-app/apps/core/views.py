@@ -1,12 +1,20 @@
+import json
+
+from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Q
-from django.shortcuts import render
+from django.http import HttpResponseForbidden
+from django.shortcuts import redirect, render
+from django.views import View
 from django.views.generic import ListView
 
 from . import auip_states as S
+from .auip_services import update_destination_for_owner
+from .forms import DestinationUpdateForm
 from .models import Package, TrackedShipment
+from .services import ShipmentNotFoundError, ShipmentStateError
 
 INTEROP_OWNER = "_amazon_interop"
 
@@ -59,7 +67,10 @@ class PackageListView(LoginRequiredMixin, ListView):
 
     def get_queryset(self):
         q = (self.request.GET.get("q") or "").strip()
-        qs = Package.objects.select_related("truck", "user")
+        qs = Package.objects.select_related("truck", "user").prefetch_related(
+            "position_updates",
+            "destination_updates",
+        )
         tab = (self.request.GET.get("tab") or "all").lower()
 
         if q:
@@ -67,7 +78,6 @@ class PackageListView(LoginRequiredMixin, ListView):
                 Q(shipment_id__icontains=q) | Q(amazon_order_id__icontains=q)
             )
             claim_search_results_for_user(qs, self.request.user)
-            qs = qs.filter(user=self.request.user)
         else:
             qs = qs.filter(user=self.request.user)
 
@@ -80,6 +90,63 @@ class PackageListView(LoginRequiredMixin, ListView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
+        packages = list(ctx["packages"])
+        self._attach_detail_timelines(packages)
+        ctx["packages"] = packages
         ctx["tab"] = (self.request.GET.get("tab") or "all").lower()
         ctx["search_q"] = (self.request.GET.get("q") or "").strip()
+        ctx["show_destination_modal"] = any(
+            package.user_id == self.request.user.id and package.status != S.DELIVERED
+            for package in packages
+        )
         return ctx
+
+    def _attach_detail_timelines(self, packages):
+        for package in packages:
+            events = []
+            for update in package.position_updates.all():
+                events.append(
+                    {
+                        "time": int(update.update_time),
+                        "type": "Position",
+                        "description": f"Position updated to ({update.x}, {update.y})",
+                    }
+                )
+            for update in package.destination_updates.all():
+                events.append(
+                    {
+                        "time": int(update.update_time),
+                        "type": "Destination",
+                        "description": f"Destination updated to ({update.x}, {update.y})",
+                    }
+                )
+            events.sort(key=lambda item: (item["time"], item["type"], item["description"]))
+            package.detail_events_json = json.dumps(events)
+
+
+class PackageDestinationUpdateView(LoginRequiredMixin, View):
+    def post(self, request, shipment_id):
+        form = DestinationUpdateForm(request.POST)
+        next_url = request.POST.get("next") or "my-packages"
+        if not form.is_valid():
+            messages.error(request, "Enter a valid destination.")
+            return redirect(next_url)
+
+        try:
+            update_destination_for_owner(
+                shipment_id=shipment_id,
+                user=request.user,
+                x=form.cleaned_data["dest_x"],
+                y=form.cleaned_data["dest_y"],
+            )
+        except ShipmentNotFoundError:
+            messages.error(request, "Shipment not found.")
+            return redirect(next_url)
+        except ShipmentStateError as exc:
+            if "Only the package owner" in str(exc):
+                return HttpResponseForbidden(str(exc))
+            messages.error(request, str(exc))
+            return redirect(next_url)
+
+        messages.success(request, "Destination updated.")
+        return redirect(next_url)
