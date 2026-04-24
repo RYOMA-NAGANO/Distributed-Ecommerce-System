@@ -5,22 +5,34 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Q
-from django.http import HttpResponseForbidden
+from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
 from django.views import View
 from django.views.generic import ListView
 
+from apps.interop.services.world_client import query_truck_status
+from apps.interop.services.world_binding import get_world_binding
+
 from . import auip_states as S
 from .auip_services import update_destination_for_owner
 from .forms import DestinationUpdateForm
-from .models import Package, TrackedShipment
+from .models import Package, PositionUpdate, TrackedShipment
 from .services import ShipmentNotFoundError, ShipmentStateError
 
 INTEROP_OWNER = "_amazon_interop"
+PRODUCT_NAME_OVERRIDES = {
+    1001: "Compact Shipping Box Set",
+}
 
 
 def _status_label(status: str) -> str:
-    return str(status).replace("_", " ").title()
+    normalized = str(status).strip().lower()
+    labels = {
+        S.TRUCK_EN_ROUTE: "Truck on the way",
+    }
+    if normalized in labels:
+        return labels[normalized]
+    return normalized.replace("_", " ").title()
 
 
 def _build_map_bounds(points: list[tuple[int, int]]) -> dict[str, int]:
@@ -72,12 +84,19 @@ def claim_search_results_for_user(search_qs, user):
     if interop_owner_id is None:
         return
 
+    matched_shipment_ids = list(search_qs.values_list("shipment_id", flat=True))
+    if not matched_shipment_ids:
+        return
+
     with transaction.atomic():
+        # Lock the candidate rows so ownership is decided once (first claimant wins).
         claimable_ids = list(
-            search_qs.filter(user_id=interop_owner_id).values_list(
-                "shipment_id",
-                flat=True,
+            Package.objects.select_for_update()
+            .filter(
+                shipment_id__in=matched_shipment_ids,
+                user_id=interop_owner_id,
             )
+            .values_list("shipment_id", flat=True)
         )
         if claimable_ids:
             Package.objects.filter(
@@ -86,7 +105,10 @@ def claim_search_results_for_user(search_qs, user):
             ).update(user_id=user.id)
 
         owned_ids = list(
-            search_qs.filter(user_id=user.id).values_list("shipment_id", flat=True)
+            Package.objects.filter(
+                shipment_id__in=matched_shipment_ids,
+                user_id=user.id,
+            ).values_list("shipment_id", flat=True)
         )
         for shipment_id in owned_ids:
             TrackedShipment.objects.update_or_create(
@@ -110,9 +132,17 @@ class PackageListView(LoginRequiredMixin, ListView):
         tab = (self.request.GET.get("tab") or "all").lower()
 
         if q:
-            matched_qs = base_qs.filter(
-                Q(shipment_id__icontains=q) | Q(amazon_order_id__icontains=q)
-            )
+            match_filter = Q(shipment_id__icontains=q) | Q(amazon_order_id__icontains=q)
+            try:
+                numeric_q = int(q)
+            except (TypeError, ValueError):
+                numeric_q = None
+
+            if numeric_q is not None:
+                match_filter |= Q(world_package_id=numeric_q)
+                match_filter |= Q(items__contains=[{"product_id": numeric_q}])
+
+            matched_qs = base_qs.filter(match_filter)
             claim_search_results_for_user(matched_qs, self.request.user)
             qs = matched_qs.filter(user=self.request.user)
         else:
@@ -144,6 +174,7 @@ class PackageListView(LoginRequiredMixin, ListView):
             position_events = list(package.position_updates.all())
             destination_events = list(package.destination_updates.all())
             status_events = list(package.status_updates.all())
+            package.status_label = _status_label(package.status)
 
             for update in status_events:
                 events.append(
@@ -162,17 +193,6 @@ class PackageListView(LoginRequiredMixin, ListView):
                         "type": "Status",
                         "description": f"Current status: {_status_label(package.status)}",
                         "status": str(package.status),
-                    }
-                )
-
-            for update in position_events:
-                events.append(
-                    {
-                        "time": int(update.update_time),
-                        "type": "Position",
-                        "description": f"Position updated to ({update.x}, {update.y})",
-                        "x": int(update.x),
-                        "y": int(update.y),
                     }
                 )
 
@@ -195,8 +215,18 @@ class PackageListView(LoginRequiredMixin, ListView):
                 if not isinstance(item, dict):
                     continue
                 quantity = item.get("quantity") or 1
-                description = str(item.get("description") or f'Product {item.get("product_id", "")}').strip()
-                package.item_summaries.append(f"{description} x{quantity}")
+                product_id = item.get("product_id")
+                display_name = str(item.get("name") or "").strip()
+                if not display_name:
+                    try:
+                        pid = int(product_id)
+                    except (TypeError, ValueError):
+                        pid = None
+                    if pid is not None and pid in PRODUCT_NAME_OVERRIDES:
+                        display_name = PRODUCT_NAME_OVERRIDES[pid]
+                if not display_name:
+                    display_name = str(item.get("description") or f"Product {product_id or ''}").strip()
+                package.item_summaries.append(f"{display_name} x{quantity}")
             if not package.item_summaries:
                 package.item_summaries = ["Item payload unavailable"]
 
@@ -246,3 +276,70 @@ class PackageDestinationUpdateView(LoginRequiredMixin, View):
 
         messages.success(request, "Destination updated.")
         return redirect(next_url)
+
+
+class PackageLivePositionView(LoginRequiredMixin, View):
+    def get(self, request, shipment_id):
+        package = (
+            Package.objects.select_related("truck")
+            .filter(shipment_id=shipment_id, user=request.user)
+            .first()
+        )
+        if package is None:
+            return JsonResponse({"detail": "Shipment not found."}, status=404)
+
+        latest_position = (
+            PositionUpdate.objects.filter(shipment=package)
+            .order_by("-update_time", "-id")
+            .first()
+        )
+
+        if latest_position is not None:
+            current_x = int(latest_position.x)
+            current_y = int(latest_position.y)
+        elif package.status == S.DELIVERED:
+            current_x = int(package.dest_x)
+            current_y = int(package.dest_y)
+        else:
+            current_x = int(package.warehouse_x)
+            current_y = int(package.warehouse_y)
+
+        resolved_world_id = int(package.world_id)
+        if resolved_world_id <= 0:
+            binding = get_world_binding()
+            if binding is not None:
+                resolved_world_id = int(binding.world_id)
+
+        if package.truck_id is not None and resolved_world_id > 0:
+            live = _fetch_live_truck_position(
+                world_id=resolved_world_id,
+                truck_id=int(package.truck_id),
+            )
+            if live is not None:
+                current_x = int(live["x"])
+                current_y = int(live["y"])
+
+        return JsonResponse(
+            {
+                "shipment_id": package.shipment_id,
+                "x": current_x,
+                "y": current_y,
+                "destination_x": int(package.dest_x),
+                "destination_y": int(package.dest_y),
+                "warehouse_x": int(package.warehouse_x),
+                "warehouse_y": int(package.warehouse_y),
+                "warehouse_id": int(package.warehouse_id),
+                "truck_id": int(package.truck_id) if package.truck_id is not None else None,
+            }
+        )
+
+
+def _fetch_live_truck_position(*, world_id: int, truck_id: int) -> dict | None:
+    try:
+        return query_truck_status(
+            truck_id=int(truck_id),
+            world_id=int(world_id),
+            timeout=0.9,
+        )
+    except Exception:
+        return None

@@ -438,15 +438,10 @@ def auip_recover_stale_pickup_requests(limit: int = 30, world_id: int | None = N
 def auip_recover_stuck_loading(limit: int = 20, world_id: int | None = None) -> int:
     """
     Self-heal UPS rows that remained LOADING after missed/failed cross-service updates.
-    Once reset to TRUCK_ARRIVED, normal load retry loop will re-drive them.
+    If the truck is still at the warehouse, retry loading from TRUCK_ARRIVED.
+    If the truck has already left or gone idle, requeue the package for pickup.
     """
-    qs = Package.objects.select_for_update().filter(
-        status=S.LOADING,
-        truck__truck_status__in=[
-            Truck.TruckStatus.ARRIVE_WAREHOUSE,
-            Truck.TruckStatus.LOADING,
-        ],
-    )
+    qs = Package.objects.select_related("truck").select_for_update().filter(status=S.LOADING)
     if world_id is not None:
         qs = qs.filter(world_id=int(world_id))
     ids = list(qs.values_list("shipment_id", flat=True)[:limit])
@@ -456,10 +451,28 @@ def auip_recover_stuck_loading(limit: int = 20, world_id: int | None = None) -> 
     for package in Package.objects.select_for_update().filter(
         shipment_id__in=ids,
         status=S.LOADING,
-    ):
+    ).select_related("truck"):
         previous_status = package.status
-        package.status = S.TRUCK_ARRIVED
-        package.save(update_fields=["status"])
+        update_fields = []
+        truck_status = package.truck.truck_status if package.truck is not None else None
+
+        if truck_status in (
+            Truck.TruckStatus.ARRIVE_WAREHOUSE,
+            Truck.TruckStatus.LOADING,
+        ):
+            package.status = S.TRUCK_ARRIVED
+            update_fields.append("status")
+        else:
+            package.status = S.PACKED
+            update_fields.append("status")
+            if package.truck_id is not None:
+                package.truck = None
+                update_fields.append("truck")
+            if package.pickup_seqnum is not None:
+                package.pickup_seqnum = None
+                update_fields.append("pickup_seqnum")
+
+        package.save(update_fields=update_fields)
         if package.status != previous_status:
             record_status_update(package, package.status)
             updated += 1

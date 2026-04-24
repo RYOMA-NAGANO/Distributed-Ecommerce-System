@@ -72,7 +72,7 @@ def handle_ready(packed_msg, pending_packs: dict) -> str | None:
 def try_issue_load(shipment_id: str, world_client, ack_mgr, pending_loads: dict) -> bool:
     """
     Load a shipment onto its truck if both conditions are met:
-      - status is PACKED or TRUCK_ARRIVED
+      - status is PACKED, TRUCK_ARRIVED, or a retryable LOADING
       - truck_id is set (UPS sent truck-arrived callback)
 
     Returns True if load command was issued.
@@ -84,7 +84,12 @@ def try_issue_load(shipment_id: str, world_client, ack_mgr, pending_loads: dict)
         return False
 
     both_ready = (
-        shipment.status in (ShipmentStatus.PACKED, ShipmentStatus.TRUCK_ARRIVED)
+        shipment.status
+        in (
+            ShipmentStatus.PACKED,
+            ShipmentStatus.TRUCK_ARRIVED,
+            ShipmentStatus.LOADING,
+        )
         and shipment.truck_id is not None
     )
     if not both_ready:
@@ -94,14 +99,19 @@ def try_issue_load(shipment_id: str, world_client, ack_mgr, pending_loads: dict)
         locked = Shipment.objects.select_for_update().select_related("warehouse").get(
             shipment_id=shipment_id
         )
-        if locked.status not in (ShipmentStatus.PACKED, ShipmentStatus.TRUCK_ARRIVED):
+        if locked.status not in (
+            ShipmentStatus.PACKED,
+            ShipmentStatus.TRUCK_ARRIVED,
+            ShipmentStatus.LOADING,
+        ):
             return False
         if locked.truck_id is None:
             return False
         warehouse_id = locked.warehouse.warehouse_id
         truck_id = locked.truck_id
-        locked.status = ShipmentStatus.LOADING
-        locked.save(update_fields=["status", "updated_at"])
+        if locked.status != ShipmentStatus.LOADING:
+            locked.status = ShipmentStatus.LOADING
+            locked.save(update_fields=["status", "updated_at"])
 
     seqnum = ack_mgr.next_seqnum()
     cmd = ACommands()

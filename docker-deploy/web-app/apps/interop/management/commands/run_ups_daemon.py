@@ -20,12 +20,13 @@ from apps.core.models import Package, PositionUpdate, Truck
 from apps.interop.services import amazon_client
 from apps.interop.services.world_response_dedupe import claim_world_response_seq
 from apps.interop.services.seqnum import allocate_next_seqnum
-from apps.interop.services.world_binding import set_world_binding
+from apps.interop.services.world_binding import get_world_binding, set_world_binding
 
 
 class Command(BaseCommand):
     help = "Start the UPS daemon that talks to the World simulator and Amazon."
     _current_world_id: int | None = None
+    _last_truck_query_at: dict[int, float]
     _PICKUP_DISPATCH_TRUCK_STATUSES = (
         Truck.TruckStatus.IDLE,
         Truck.TruckStatus.ARRIVE_WAREHOUSE,
@@ -35,6 +36,14 @@ class Command(BaseCommand):
         Truck.TruckStatus.IDLE,
         Truck.TruckStatus.ARRIVE_WAREHOUSE,
         Truck.TruckStatus.DELIVERING,
+    )
+    _TRUCK_QUERY_PACKAGE_STATUSES = (
+        S.TRUCK_EN_ROUTE,
+        S.TRUCK_ARRIVED,
+        S.PACKED,
+        S.LOADING,
+        S.LOADED,
+        S.OUT_FOR_DELIVERY,
     )
 
     def add_arguments(self, parser):
@@ -67,14 +76,29 @@ class Command(BaseCommand):
         send_pickup = world_client.send_pickup
         send_deliver = world_client.send_deliver
         send_acks_only = world_client.send_acks_only
+        send_query = world_client.send_query
+        self._last_truck_query_at = {}
 
         timeout = options["timeout"]
         read_timeout = options["read_timeout"]
         idle_log_seconds = options["idle_log_seconds"]
-        try:
-            session = open_world_session(connect_timeout=timeout, read_timeout=read_timeout)
-        except WorldConnectionError as exc:
-            raise CommandError(str(exc)) from exc
+        session = None
+        existing_binding = get_world_binding()
+        if existing_binding is not None:
+            try:
+                session = open_world_session(
+                    connect_timeout=timeout,
+                    read_timeout=read_timeout,
+                    world_id=int(existing_binding.world_id),
+                )
+            except WorldConnectionError:
+                session = None
+
+        if session is None:
+            try:
+                session = open_world_session(connect_timeout=timeout, read_timeout=read_timeout)
+            except WorldConnectionError as exc:
+                raise CommandError(str(exc)) from exc
 
         result = session.handshake
         self._current_world_id = int(result.world_id)
@@ -102,6 +126,7 @@ class Command(BaseCommand):
             auip_reconcile_truck_arrivals(world_id=self._current_world_id)
             auip_recover_stuck_loading(world_id=self._current_world_id)
             auip_retry_pending_load_requests(world_id=self._current_world_id)
+            self._enqueue_truck_queries(session.sock, send_query)
             self._enqueue_pickups(session.sock, send_pickup)
             self._enqueue_deliveries(session.sock, send_deliver)
 
@@ -214,6 +239,34 @@ class Command(BaseCommand):
         # Dispatch decision is based on current truck status only.
         # Do not block on historical package-truck bindings.
         return trucks[0] if trucks else None
+
+    def _enqueue_truck_queries(self, sock, send_query, interval_seconds: float = 1.0):
+        if self._current_world_id is None:
+            return
+
+        now = time.monotonic()
+        truck_ids = [
+            int(truck_id)
+            for truck_id in Package.objects.filter(
+                world_id=int(self._current_world_id),
+                truck_id__isnull=False,
+                status__in=self._TRUCK_QUERY_PACKAGE_STATUSES,
+            )
+            .values_list("truck_id", flat=True)
+            .distinct()
+        ]
+        active_ids = set(truck_ids)
+        for truck_id in list(self._last_truck_query_at.keys()):
+            if truck_id not in active_ids:
+                del self._last_truck_query_at[truck_id]
+
+        for truck_id in truck_ids:
+            last_sent = self._last_truck_query_at.get(truck_id, 0.0)
+            if now - last_sent < interval_seconds:
+                continue
+            seq = allocate_next_seqnum()
+            send_query(sock, truck_id=truck_id, seqnum=seq, acks=None)
+            self._last_truck_query_at[truck_id] = now
 
     def _enqueue_deliveries(self, sock, send_deliver):
         if self._current_world_id is None:

@@ -5,7 +5,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from . import auip_states as S
-from .auip_services import auip_create_shipment, auip_mark_ready, auip_update_destination
+from .auip_services import (
+    auip_create_shipment,
+    auip_mark_ready,
+    auip_recover_stuck_loading,
+    auip_update_destination,
+)
 from .models import (
     DestinationUpdate,
     Package,
@@ -35,7 +40,14 @@ class PackageOwnershipSearchTests(TestCase):
             password="pw",
         )
 
-    def create_interop_package(self, shipment_id="PKG-1", amazon_order_id="ORDER-1"):
+    def create_interop_package(
+        self,
+        shipment_id="PKG-1",
+        amazon_order_id="ORDER-1",
+        *,
+        world_package_id=None,
+        items=None,
+    ):
         return Package.objects.create(
             shipment_id=shipment_id,
             world_id=1,
@@ -46,6 +58,8 @@ class PackageOwnershipSearchTests(TestCase):
             warehouse_id=1,
             warehouse_x=0,
             warehouse_y=0,
+            world_package_id=world_package_id,
+            items=items,
             status=S.CREATED,
         )
 
@@ -130,6 +144,46 @@ class PackageOwnershipSearchTests(TestCase):
         response = self.client.get(reverse("my-packages"))
 
         self.assertEqual(list(response.context["packages"]), [package])
+
+    def test_first_search_by_world_package_id_claims_interop_package(self):
+        package = self.create_interop_package(world_package_id=88001)
+        self.client.force_login(self.alice)
+
+        response = self.client.get(reverse("my-packages"), {"q": "88001"})
+
+        self.assertEqual(list(response.context["packages"]), [package])
+        package.refresh_from_db()
+        self.assertEqual(package.user_id, self.alice.id)
+
+    def test_first_search_by_item_product_id_claims_interop_package(self):
+        package = self.create_interop_package(
+            shipment_id="PKG-PROD-1",
+            amazon_order_id="ORDER-PROD-1",
+            items=[{"product_id": 1001, "description": "demo", "quantity": 1}],
+        )
+        self.client.force_login(self.alice)
+
+        response = self.client.get(reverse("my-packages"), {"q": "1001"})
+
+        self.assertEqual(list(response.context["packages"]), [package])
+        package.refresh_from_db()
+        self.assertEqual(package.user_id, self.alice.id)
+
+    def test_later_search_by_same_item_product_id_cannot_steal_claimed_package(self):
+        package = self.create_interop_package(
+            shipment_id="PKG-PROD-2",
+            amazon_order_id="ORDER-PROD-2",
+            items=[{"product_id": 1001, "description": "demo", "quantity": 1}],
+        )
+        self.client.force_login(self.alice)
+        self.client.get(reverse("my-packages"), {"q": "1001"})
+
+        self.client.force_login(self.bob)
+        response = self.client.get(reverse("my-packages"), {"q": "1001"})
+
+        self.assertEqual(list(response.context["packages"]), [])
+        package.refresh_from_db()
+        self.assertEqual(package.user_id, self.alice.id)
 
     def test_owner_can_update_destination_before_loaded(self):
         package = self.create_owned_package(status=S.PACKED)
@@ -260,6 +314,33 @@ class PackageOwnershipSearchTests(TestCase):
         self.assertNotContains(response, "Position updated to (1, 2)")
         self.assertEqual(list(response.context["packages"]), [])
 
+    @patch("apps.core.views._fetch_live_truck_position")
+    def test_owner_live_position_endpoint_returns_world_coordinates(self, mock_live_lookup):
+        truck = Truck.objects.create(
+            truck_id=41,
+            truck_status=Truck.TruckStatus.TRAVELING,
+        )
+        package = self.create_owned_package(user=self.alice, truck=truck, shipment_id="PKG-LIVE-1")
+        mock_live_lookup.return_value = {"x": 55, "y": 66}
+        self.client.force_login(self.alice)
+
+        response = self.client.get(reverse("package-live-position", args=[package.shipment_id]))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual((payload["x"], payload["y"]), (55, 66))
+        self.assertEqual(payload["truck_id"], truck.truck_id)
+
+    @patch("apps.core.views._fetch_live_truck_position")
+    def test_non_owner_live_position_endpoint_is_hidden(self, mock_live_lookup):
+        package = self.create_owned_package(user=self.alice, shipment_id="PKG-LIVE-2")
+        self.client.force_login(self.bob)
+
+        response = self.client.get(reverse("package-live-position", args=[package.shipment_id]))
+
+        self.assertEqual(response.status_code, 404)
+        mock_live_lookup.assert_not_called()
+
     def test_auip_create_records_initial_destination(self):
         package = auip_create_shipment(
             {
@@ -372,4 +453,31 @@ class PackageOwnershipSearchTests(TestCase):
                 (package_a.shipment_id, 33, 44),
                 (package_b.shipment_id, 33, 44),
             },
+        )
+
+    def test_recover_stuck_loading_requeues_package_when_truck_is_idle(self):
+        truck = Truck.objects.create(
+            truck_id=12,
+            truck_status=Truck.TruckStatus.IDLE,
+        )
+        package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-STUCK-LOAD-1",
+            status=S.LOADING,
+            world_package_id=1003,
+        )
+
+        updated = auip_recover_stuck_loading(world_id=package.world_id)
+
+        self.assertEqual(updated, 1)
+        package.refresh_from_db()
+        self.assertEqual(package.status, S.PACKED)
+        self.assertIsNone(package.truck_id)
+        self.assertEqual(
+            list(
+                StatusUpdate.objects.filter(shipment=package)
+                .order_by("id")
+                .values_list("status", flat=True)
+            ),
+            [S.PACKED],
         )

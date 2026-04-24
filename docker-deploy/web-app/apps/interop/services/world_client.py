@@ -1,4 +1,5 @@
 import socket
+import time
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional
 
@@ -34,15 +35,17 @@ def _initial_spawn_for_truck(truck_id: int) -> tuple[int, int]:
     return (1 + (idx % 4) * 4, 1 + (idx // 4) * 4)
 
 
-def build_connect_message():
+def build_connect_message(world_id_override: int | None = None):
     connect = world_ups_pb2.UConnect()
-    if settings.WORLD_ID:
+    if world_id_override is not None:
+        connect.worldid = int(world_id_override)
+    elif settings.WORLD_ID:
         connect.worldid = int(settings.WORLD_ID)
     connect.isAmazon = False
 
     # UInitTruck exists only on connect; initialize from UPS's persisted truck ids.
     # If joining an existing world id, we do not redefine truck pool here.
-    if not settings.WORLD_ID:
+    if not connect.HasField("worldid"):
         from apps.core.models import Truck
 
         known_ids = list(
@@ -160,6 +163,14 @@ def send_deliver(sock, truck_id: int, world_package_id: int, dest_x: int, dest_y
     send_message(sock, commands)
 
 
+def send_query(sock, truck_id: int, seqnum: int, acks: Optional[Iterable[int]] = None):
+    commands = build_commands_with_acks(acks)
+    query = commands.queries.add()
+    query.truckid = int(truck_id)
+    query.seqnum = int(seqnum)
+    send_message(sock, commands)
+
+
 def send_acks_only(sock, acks: Iterable[int]):
     commands = build_commands_with_acks(acks)
     send_message(sock, commands)
@@ -184,8 +195,8 @@ def format_responses(responses):
     return ", ".join(parts) if parts else "empty response"
 
 
-def open_world_session(connect_timeout=10, read_timeout=2.0):
-    connect_message = build_connect_message()
+def open_world_session(connect_timeout=10, read_timeout=2.0, world_id: int | None = None):
+    connect_message = build_connect_message(world_id_override=world_id)
     try:
         sock = socket.create_connection((settings.WORLD_HOST, settings.WORLD_PORT), timeout=connect_timeout)
         sock.settimeout(connect_timeout)
@@ -237,3 +248,55 @@ def listen_for_world_events(
                 on_response(responses)
     finally:
         session.sock.close()
+
+
+def query_truck_status(
+    *,
+    truck_id: int,
+    world_id: int | None = None,
+    timeout: float = 1.0,
+    retries: int = 2,
+) -> dict | None:
+    from apps.interop.services.seqnum import allocate_next_seqnum
+
+    session = open_world_session(
+        connect_timeout=max(0.2, float(timeout)),
+        read_timeout=max(0.2, float(timeout)),
+        world_id=world_id,
+    )
+    try:
+        query_seq = allocate_next_seqnum()
+        send_query(session.sock, truck_id=int(truck_id), seqnum=int(query_seq))
+        deadline = time.monotonic() + max(0.2, float(timeout))
+
+        while time.monotonic() < deadline:
+            try:
+                responses = receive_responses(session.sock)
+            except socket.timeout:
+                continue
+
+            acks = collect_response_seqnums(responses)
+            if acks:
+                send_acks_only(session.sock, acks)
+
+            for truck in responses.truckstatus:
+                if int(truck.truckid) == int(truck_id):
+                    return {
+                        "truck_id": int(truck.truckid),
+                        "x": int(truck.x),
+                        "y": int(truck.y),
+                        "status": str(truck.status or ""),
+                        "seqnum": int(truck.seqnum),
+                    }
+
+        if retries <= 0:
+            return None
+    finally:
+        session.sock.close()
+
+    return query_truck_status(
+        truck_id=int(truck_id),
+        world_id=world_id,
+        timeout=timeout,
+        retries=retries - 1,
+    )

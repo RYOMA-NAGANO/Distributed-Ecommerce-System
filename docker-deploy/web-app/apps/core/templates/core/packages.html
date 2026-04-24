@@ -32,7 +32,7 @@
             <div class="ups-package-card-head">
               <div class="ups-package-summary">
                 <strong>{{ package.shipment_id }}</strong>
-                <span class="ups-status">{{ package.status }}</span>
+                <span class="ups-status">{{ package.status_label }}</span>
                 {% if package.truck %}
                   <span class="ups-muted">Truck #{{ package.truck.truck_id }}</span>
                 {% endif %}
@@ -48,12 +48,9 @@
                     data-dest-y="{{ package.dest_y }}"
                     data-current-x="{{ package.current_position_x }}"
                     data-current-y="{{ package.current_position_y }}"
+                    data-warehouse-id="{{ package.warehouse_id }}"
                     data-warehouse-x="{{ package.warehouse_x }}"
                     data-warehouse-y="{{ package.warehouse_y }}"
-                    data-min-x="{{ package.map_min_x }}"
-                    data-max-x="{{ package.map_max_x }}"
-                    data-min-y="{{ package.map_min_y }}"
-                    data-max-y="{{ package.map_max_y }}"
                   >Edit destination</button>
                 {% endif %}
                 {% if package.user_id == request.user.id %}
@@ -62,15 +59,13 @@
                     class="ups-btn ups-btn-primary ups-details-view"
                     data-target="details-{{ forloop.counter }}"
                     data-events="{{ package.detail_events_json }}"
+                    data-live-url="{% url 'package-live-position' package.shipment_id %}"
                     aria-expanded="false"
                     aria-controls="details-{{ forloop.counter }}"
                   >View details</button>
                 {% endif %}
               </div>
             </div>
-            <p class="ups-muted" style="margin:0.5rem 0 0;font-size:0.88rem;">
-              Destination ({{ package.dest_x }}, {{ package.dest_y }}) · Current {{ package.current_position_display }} · Warehouse {{ package.warehouse_id }}
-            </p>
             <div class="ups-detail-collapse" id="details-{{ forloop.counter }}" hidden>
               <div class="ups-detail-collapse-head">
                 <strong>Package details</strong>
@@ -88,10 +83,7 @@
                 <section class="ups-detail-map-pane">
                   <div
                     class="ups-grid-map ups-package-map"
-                    data-min-x="{{ package.map_min_x }}"
-                    data-max-x="{{ package.map_max_x }}"
-                    data-min-y="{{ package.map_min_y }}"
-                    data-max-y="{{ package.map_max_y }}"
+                    data-warehouse-id="{{ package.warehouse_id }}"
                     data-warehouse-x="{{ package.warehouse_x }}"
                     data-warehouse-y="{{ package.warehouse_y }}"
                     data-current-x="{{ package.current_position_x }}"
@@ -99,17 +91,22 @@
                     data-destination-x="{{ package.dest_x }}"
                     data-destination-y="{{ package.dest_y }}">
                     <div class="ups-grid-surface ups-grid-readonly">
+                      <svg class="ups-grid-overlay" aria-hidden="true"></svg>
+                      <div class="ups-grid-labels" aria-hidden="true"></div>
+                      <span class="ups-grid-click-label" data-role="click-label" hidden></span>
                       <span class="ups-grid-marker ups-marker-warehouse" data-marker="warehouse"></span>
-                      <span class="ups-grid-marker ups-marker-current" data-marker="current"></span>
+                      <span class="ups-grid-marker ups-marker-package" data-marker="current"></span>
+                      <span class="ups-grid-marker ups-marker-truck" data-marker="truck">🚚</span>
                       <span class="ups-grid-marker ups-marker-destination" data-marker="destination"></span>
                     </div>
                     <div class="ups-grid-meta">
                       <div class="ups-grid-legend">
-                        <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-warehouse"></span>Warehouse</span>
-                        <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-current"></span>Current</span>
+                        <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-warehouse"></span>Warehouse{{ package.warehouse_id }}</span>
                         <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-destination"></span>Destination</span>
+                        <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-package"></span>Package</span>
+                        <span class="ups-grid-legend-item"><span class="ups-grid-legend-truck">🚚</span>Truck</span>
+                        <span class="ups-grid-legend-item"><span class="ups-grid-legend-line"></span>Route</span>
                       </div>
-                      <div class="ups-grid-readout">Current position {{ package.current_position_display }} · {{ package.current_position_note }}</div>
                     </div>
                   </div>
                 </section>
@@ -138,10 +135,7 @@
               <div
                 class="ups-grid-map ups-destination-map"
                 id="destination-map"
-                data-min-x=""
-                data-max-x=""
-                data-min-y=""
-                data-max-y=""
+                data-warehouse-id=""
                 data-warehouse-x=""
                 data-warehouse-y=""
                 data-original-x=""
@@ -149,19 +143,26 @@
                 data-selected-x=""
                 data-selected-y="">
                 <div class="ups-grid-surface" id="destination-map-surface">
+                  <svg class="ups-grid-overlay" aria-hidden="true"></svg>
+                  <div class="ups-grid-labels" aria-hidden="true"></div>
+                  <span class="ups-grid-click-label" data-role="click-label" hidden></span>
                   <span class="ups-grid-marker ups-marker-warehouse" data-marker="warehouse"></span>
                   <span class="ups-grid-marker ups-marker-original" data-marker="original"></span>
                   <span class="ups-grid-marker ups-marker-selected" data-marker="selected"></span>
                 </div>
                 <div class="ups-grid-meta">
                   <div class="ups-grid-legend">
-                    <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-warehouse"></span>Warehouse</span>
+                    <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-warehouse"></span><span id="destination-warehouse-label">Warehouse</span></span>
                     <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-original"></span>Original</span>
                     <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-selected"></span>Selected</span>
                   </div>
-                  <div class="ups-grid-readout">
+                  <div class="ups-grid-readout" id="destination-readout">
                     Selected destination:
                     (<span id="destination-x-label"></span>, <span id="destination-y-label"></span>)
+                  </div>
+                  <div class="ups-grid-controls">
+                    <button type="button" class="ups-btn ups-btn-outline" id="destination-expand">Expand grid</button>
+                    <button type="button" class="ups-btn ups-btn-outline" id="destination-reset">Reset grid</button>
                   </div>
                 </div>
               </div>
@@ -189,15 +190,6 @@
       return Number.isFinite(parsed) ? parsed : null;
     }
 
-    function readBounds(map) {
-      return {
-        minX: toNumber(map.dataset.minX),
-        maxX: toNumber(map.dataset.maxX),
-        minY: toNumber(map.dataset.minY),
-        maxY: toNumber(map.dataset.maxY),
-      };
-    }
-
     function readPoint(map, key) {
       const x = toNumber(map.dataset[key + "X"]);
       const y = toNumber(map.dataset[key + "Y"]);
@@ -205,34 +197,230 @@
       return { x, y };
     }
 
+    function collectPoints(map) {
+      const keys = ["warehouse", "current", "destination", "original", "selected"];
+      const points = [];
+      keys.forEach((key) => {
+        const point = readPoint(map, key);
+        if (point) points.push(point);
+      });
+      points.push({ x: 0, y: 0 });
+      return points;
+    }
+
+    function pickTickStep(maxAbsCoordinate) {
+      if (maxAbsCoordinate <= 12) return 1;
+      const roughStep = Math.max(1, maxAbsCoordinate / 10);
+      const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+      const normalized = roughStep / magnitude;
+      let base = 10;
+      if (normalized <= 1) base = 1;
+      else if (normalized <= 2) base = 2;
+      else if (normalized <= 5) base = 5;
+      return base * magnitude;
+    }
+
+    function computeBounds(map) {
+      const scale = Math.max(1, toNumber(map.dataset.scale) || 1);
+      const points = collectPoints(map);
+      let maxAbs = 10;
+      points.forEach((point) => {
+        maxAbs = Math.max(maxAbs, Math.abs(point.x), Math.abs(point.y));
+      });
+      maxAbs = Math.max(10, Math.ceil(maxAbs * scale));
+      const step = pickTickStep(maxAbs);
+      const padded = Math.ceil((maxAbs + step * 2) / step) * step;
+      return {
+        minX: -padded,
+        maxX: padded,
+        minY: -padded,
+        maxY: padded,
+        step,
+      };
+    }
+
     function toPercent(value, min, max) {
       if (max === min) return 50;
       return ((value - min) / (max - min)) * 100;
     }
 
-    function placeMarker(surface, marker, point, bounds) {
+    function toPixel(point, bounds, width, height) {
+      return {
+        x: (toPercent(point.x, bounds.minX, bounds.maxX) / 100) * width,
+        y: (1 - toPercent(point.y, bounds.minY, bounds.maxY) / 100) * height,
+      };
+    }
+
+    function ensureOverlay(surface) {
+      let overlay = surface.querySelector(".ups-grid-overlay");
+      if (!overlay) {
+        overlay = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        overlay.setAttribute("class", "ups-grid-overlay");
+        surface.prepend(overlay);
+      }
+      return overlay;
+    }
+
+    function ensureAxisLabels(surface) {
+      let labels = surface.querySelector(".ups-grid-labels");
+      if (!labels) {
+        labels = document.createElement("div");
+        labels.className = "ups-grid-labels";
+        surface.appendChild(labels);
+      }
+      return labels;
+    }
+
+    function getClickLabel(surface) {
+      return surface.querySelector('[data-role="click-label"]');
+    }
+
+    function drawLine(svg, x1, y1, x2, y2, className) {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", String(x1));
+      line.setAttribute("y1", String(y1));
+      line.setAttribute("x2", String(x2));
+      line.setAttribute("y2", String(y2));
+      line.setAttribute("class", className);
+      svg.appendChild(line);
+    }
+
+    function drawOverlay(surface, map, bounds) {
+      const overlay = ensureOverlay(surface);
+      const labels = ensureAxisLabels(surface);
+      const width = Math.max(1, surface.clientWidth);
+      const height = Math.max(1, surface.clientHeight);
+      overlay.setAttribute("viewBox", "0 0 " + width + " " + height);
+      overlay.innerHTML = "";
+      labels.innerHTML = "";
+
+      const majorStep = bounds.step;
+      const startX = Math.ceil(bounds.minX / majorStep) * majorStep;
+      const startY = Math.ceil(bounds.minY / majorStep) * majorStep;
+
+      let lastXLabelPx = -1000;
+      for (let x = startX; x <= bounds.maxX; x += majorStep) {
+        const px = (toPercent(x, bounds.minX, bounds.maxX) / 100) * width;
+        drawLine(overlay, px, 0, px, height, "ups-grid-line");
+        if (Math.abs(px - lastXLabelPx) >= 26) {
+          const label = document.createElement("span");
+          label.className = "ups-grid-axis-label ups-grid-axis-label-x";
+          label.style.left = px + "px";
+          label.textContent = String(Math.round(x));
+          labels.appendChild(label);
+          lastXLabelPx = px;
+        }
+      }
+
+      let lastYLabelPx = -1000;
+      for (let y = startY; y <= bounds.maxY; y += majorStep) {
+        const py = (1 - toPercent(y, bounds.minY, bounds.maxY) / 100) * height;
+        drawLine(overlay, 0, py, width, py, "ups-grid-line");
+        if (Math.abs(py - lastYLabelPx) >= 18) {
+          const label = document.createElement("span");
+          label.className = "ups-grid-axis-label ups-grid-axis-label-y";
+          label.style.top = py + "px";
+          label.textContent = String(Math.round(y));
+          labels.appendChild(label);
+          lastYLabelPx = py;
+        }
+      }
+
+      const origin = toPixel({ x: 0, y: 0 }, bounds, width, height);
+      drawLine(overlay, 0, origin.y, width, origin.y, "ups-grid-axis");
+      drawLine(overlay, origin.x, 0, origin.x, height, "ups-grid-axis");
+
+      const warehouse = readPoint(map, "warehouse");
+      const destination = readPoint(map, "selected") || readPoint(map, "destination") || readPoint(map, "original");
+      if (warehouse && destination) {
+        const start = toPixel(warehouse, bounds, width, height);
+        const end = toPixel(destination, bounds, width, height);
+        drawLine(overlay, start.x, start.y, end.x, end.y, "ups-grid-route");
+      }
+    }
+
+    function placeMarker(surface, marker, point, bounds, offsetX, offsetY) {
       if (!marker) return;
       if (!point) {
         marker.style.display = "none";
         return;
       }
+      const safeOffsetX = Number.isFinite(offsetX) ? offsetX : 0;
+      const safeOffsetY = Number.isFinite(offsetY) ? offsetY : 0;
       marker.style.display = "block";
       marker.style.left = toPercent(point.x, bounds.minX, bounds.maxX) + "%";
       marker.style.top = (100 - toPercent(point.y, bounds.minY, bounds.maxY)) + "%";
+      marker.style.setProperty("--marker-offset-x", safeOffsetX + "px");
+      marker.style.setProperty("--marker-offset-y", safeOffsetY + "px");
       surface.appendChild(marker);
+    }
+
+    function showClickCoordinate(map, x, y) {
+      const surface = map.querySelector(".ups-grid-surface");
+      if (!surface) return;
+      const bounds = map._bounds || computeBounds(map);
+      const clickLabel = getClickLabel(surface);
+      if (!clickLabel) return;
+      map.dataset.clickedX = String(x);
+      map.dataset.clickedY = String(y);
+      clickLabel.hidden = false;
+      clickLabel.textContent = "(" + x + ", " + y + ")";
+      clickLabel.style.left = toPercent(x, bounds.minX, bounds.maxX) + "%";
+      clickLabel.style.top = (100 - toPercent(y, bounds.minY, bounds.maxY)) + "%";
+    }
+
+    function clearClickCoordinate(map) {
+      delete map.dataset.clickedX;
+      delete map.dataset.clickedY;
+      const surface = map.querySelector(".ups-grid-surface");
+      if (!surface) return;
+      const clickLabel = getClickLabel(surface);
+      if (!clickLabel) return;
+      clickLabel.hidden = true;
+    }
+
+    function warehouseName(map) {
+      const id = String(map.dataset.warehouseId || "").trim();
+      return id ? "Warehouse" + id : "Warehouse";
+    }
+
+    function setDestinationWarehouseLegendLabel(map) {
+      const legend = document.getElementById("destination-warehouse-label");
+      if (!legend || !map || map.id !== "destination-map") return;
+      legend.textContent = warehouseName(map);
     }
 
     function renderMap(map) {
       if (!map) return;
-      const bounds = readBounds(map);
+      const bounds = computeBounds(map);
       const surface = map.querySelector(".ups-grid-surface");
-      if (!surface || bounds.minX === null || bounds.maxX === null || bounds.minY === null || bounds.maxY === null) return;
+      if (!surface) return;
+      map._bounds = bounds;
+      setDestinationWarehouseLegendLabel(map);
 
-      placeMarker(surface, map.querySelector('[data-marker="warehouse"]'), readPoint(map, "warehouse"), bounds);
-      placeMarker(surface, map.querySelector('[data-marker="current"]'), readPoint(map, "current"), bounds);
-      placeMarker(surface, map.querySelector('[data-marker="destination"]'), readPoint(map, "destination"), bounds);
-      placeMarker(surface, map.querySelector('[data-marker="original"]'), readPoint(map, "original"), bounds);
-      placeMarker(surface, map.querySelector('[data-marker="selected"]'), readPoint(map, "selected"), bounds);
+      drawOverlay(surface, map, bounds);
+
+      const warehouse = readPoint(map, "warehouse");
+      const current = readPoint(map, "current");
+      const destination = readPoint(map, "destination");
+      const original = readPoint(map, "original");
+      const selected = readPoint(map, "selected");
+
+      placeMarker(surface, map.querySelector('[data-marker="warehouse"]'), warehouse, bounds);
+      placeMarker(surface, map.querySelector('[data-marker="current"]'), current, bounds);
+      placeMarker(surface, map.querySelector('[data-marker="truck"]'), current, bounds);
+      placeMarker(surface, map.querySelector('[data-marker="destination"]'), destination, bounds);
+      placeMarker(surface, map.querySelector('[data-marker="original"]'), original, bounds);
+      placeMarker(surface, map.querySelector('[data-marker="selected"]'), selected, bounds);
+
+      const clickedX = toNumber(map.dataset.clickedX);
+      const clickedY = toNumber(map.dataset.clickedY);
+      if (clickedX !== null && clickedY !== null) {
+        showClickCoordinate(map, clickedX, clickedY);
+      } else {
+        const clickLabel = getClickLabel(surface);
+        if (clickLabel) clickLabel.hidden = true;
+      }
     }
 
     function formatTime(epochSeconds) {
@@ -243,7 +431,56 @@
 
     function renderEvents(timeline, events) {
       timeline.innerHTML = "";
-      if (!events.length) {
+      const seenStatus = new Set();
+      const filtered = [];
+      events.forEach((event) => {
+        const description = String(event.description || "");
+        if (description.toLowerCase().includes("retry")) return;
+        if (String(event.type || "").toLowerCase() === "status") {
+          const key = String(event.status || "").trim().toLowerCase();
+          if (key.includes("retry")) return;
+          if (seenStatus.has(key)) return;
+          seenStatus.add(key);
+        }
+        filtered.push(event);
+      });
+      const statusPriority = {
+        truck_en_route: 0,
+        truck_on_the_way: 0,
+        "truck on the way": 0,
+        created: 1,
+      };
+      function normalizeStatus(statusValue) {
+        return String(statusValue || "")
+          .trim()
+          .toLowerCase()
+          .replace(/[\s-]+/g, "_");
+      }
+      filtered.sort((a, b) => {
+        const ta = Number(a.time) || 0;
+        const tb = Number(b.time) || 0;
+        if (tb !== ta) return tb - ta;
+        const aType = String(a.type || "");
+        const bType = String(b.type || "");
+        if (aType === "Status" && bType === "Status") {
+          const aStatus = normalizeStatus(a.status);
+          const bStatus = normalizeStatus(b.status);
+          if (aStatus === "created" && (bStatus === "truck_en_route" || bStatus === "truck_on_the_way")) return 1;
+          if (bStatus === "created" && (aStatus === "truck_en_route" || aStatus === "truck_on_the_way")) return -1;
+          const aRank = Object.prototype.hasOwnProperty.call(statusPriority, aStatus)
+            ? statusPriority[aStatus]
+            : 99;
+          const bRank = Object.prototype.hasOwnProperty.call(statusPriority, bStatus)
+            ? statusPriority[bStatus]
+            : 99;
+          if (aRank !== bRank) return aRank - bRank;
+        }
+        const typeCmp = aType.localeCompare(bType);
+        if (typeCmp !== 0) return typeCmp;
+        return String(a.description || "").localeCompare(String(b.description || ""));
+      });
+
+      if (!filtered.length) {
         const empty = document.createElement("p");
         empty.className = "ups-muted";
         empty.textContent = "No status or position updates recorded.";
@@ -251,7 +488,7 @@
         return;
       }
 
-      events.forEach((event) => {
+      filtered.forEach((event) => {
         const row = document.createElement("div");
         row.className = "ups-detail-event";
 
@@ -269,12 +506,93 @@
       });
     }
 
+    function mapCoordinatesFromClick(map, surface, event) {
+      const bounds = map._bounds || computeBounds(map);
+      const rect = surface.getBoundingClientRect();
+      const ratioX = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+      const ratioY = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
+      return {
+        x: Math.round(bounds.minX + ratioX * (bounds.maxX - bounds.minX)),
+        y: Math.round(bounds.maxY - ratioY * (bounds.maxY - bounds.minY)),
+      };
+    }
+
+    let liveTimer = null;
+    let liveFetchInFlight = false;
+    let liveMap = null;
+    let liveUrl = "";
+
+    function stopLivePolling() {
+      if (liveTimer) {
+        clearInterval(liveTimer);
+        liveTimer = null;
+      }
+      liveFetchInFlight = false;
+      liveMap = null;
+      liveUrl = "";
+    }
+
+    async function pollLivePosition() {
+      if (!liveMap || !liveUrl || liveFetchInFlight) return;
+      liveFetchInFlight = true;
+      try {
+        const response = await fetch(liveUrl, {
+          method: "GET",
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+          credentials: "same-origin",
+        });
+        if (!response.ok) {
+          if (response.status === 403 || response.status === 404) {
+            stopLivePolling();
+          }
+          return;
+        }
+        const payload = await response.json();
+        const x = toNumber(payload.x);
+        const y = toNumber(payload.y);
+        if (x !== null && y !== null) {
+          liveMap.dataset.currentX = String(x);
+          liveMap.dataset.currentY = String(y);
+        }
+        const destinationX = toNumber(payload.destination_x);
+        const destinationY = toNumber(payload.destination_y);
+        if (destinationX !== null && destinationY !== null) {
+          liveMap.dataset.destinationX = String(destinationX);
+          liveMap.dataset.destinationY = String(destinationY);
+        }
+        const warehouseX = toNumber(payload.warehouse_x);
+        const warehouseY = toNumber(payload.warehouse_y);
+        if (warehouseX !== null && warehouseY !== null) {
+          liveMap.dataset.warehouseX = String(warehouseX);
+          liveMap.dataset.warehouseY = String(warehouseY);
+        }
+        if (payload.warehouse_id !== null && payload.warehouse_id !== undefined) {
+          liveMap.dataset.warehouseId = String(payload.warehouse_id);
+        }
+        renderMap(liveMap);
+      } catch (error) {
+        return;
+      } finally {
+        liveFetchInFlight = false;
+      }
+    }
+
+    function startLivePolling(map, url) {
+      stopLivePolling();
+      if (!map || !url) return;
+      liveMap = map;
+      liveUrl = url;
+      pollLivePosition();
+      liveTimer = window.setInterval(pollLivePosition, 1000);
+    }
+
     document.querySelectorAll(".ups-details-view").forEach((button) => {
       button.addEventListener("click", () => {
         const panel = document.getElementById(button.dataset.target);
         if (!panel) return;
         const timeline = panel.querySelector(".ups-detail-timeline");
         const map = panel.querySelector(".ups-package-map");
+        const liveUrl = button.dataset.liveUrl || "";
         const isOpening = panel.hidden;
 
         document.querySelectorAll(".ups-detail-collapse").forEach((otherPanel) => {
@@ -287,6 +605,7 @@
         if (!isOpening) {
           panel.hidden = true;
           button.setAttribute("aria-expanded", "false");
+          stopLivePolling();
           return;
         }
 
@@ -296,10 +615,29 @@
         } catch (error) {
           events = [];
         }
-        renderEvents(timeline, events);
-        renderMap(map);
         panel.hidden = false;
+        renderEvents(timeline, events);
+        clearClickCoordinate(map);
+        renderMap(map);
+        startLivePolling(map, liveUrl);
         button.setAttribute("aria-expanded", "true");
+      });
+    });
+
+    document.querySelectorAll(".ups-package-map .ups-grid-surface").forEach((surface) => {
+      surface.addEventListener("click", (event) => {
+        const map = surface.closest(".ups-package-map");
+        if (!map) return;
+        const coords = mapCoordinatesFromClick(map, surface, event);
+        showClickCoordinate(map, coords.x, coords.y);
+      });
+    });
+
+    window.addEventListener("resize", () => {
+      document.querySelectorAll(".ups-detail-collapse").forEach((panel) => {
+        if (panel.hidden) return;
+        const map = panel.querySelector(".ups-package-map");
+        if (map) renderMap(map);
       });
     });
 
@@ -311,32 +649,39 @@
     const inputY = document.getElementById("destination-y");
     const labelX = document.getElementById("destination-x-label");
     const labelY = document.getElementById("destination-y-label");
+    const destinationReadout = document.getElementById("destination-readout");
     const shipmentLabel = document.getElementById("destination-shipment");
     const map = document.getElementById("destination-map");
     const surface = document.getElementById("destination-map-surface");
 
+    window.addEventListener("resize", () => {
+      if (!modal.hidden) renderMap(map);
+    });
+
     function closeModal() {
+      clearClickCoordinate(map);
       modal.hidden = true;
     }
 
-    function setSelectedPoint(x, y) {
+    function setSelectedPoint(x, y, showReadout) {
       map.dataset.selectedX = String(x);
       map.dataset.selectedY = String(y);
       inputX.value = String(x);
       inputY.value = String(y);
-      labelX.textContent = String(x);
-      labelY.textContent = String(y);
       renderMap(map);
+      if (showReadout) {
+        labelX.textContent = String(x);
+        labelY.textContent = String(y);
+        destinationReadout.hidden = false;
+      }
     }
 
     function openModalForButton(button) {
       form.action = button.dataset.action;
       shipmentLabel.textContent = button.dataset.shipmentId || "";
+      map.dataset.scale = "1";
 
-      map.dataset.minX = button.dataset.minX || "";
-      map.dataset.maxX = button.dataset.maxX || "";
-      map.dataset.minY = button.dataset.minY || "";
-      map.dataset.maxY = button.dataset.maxY || "";
+      map.dataset.warehouseId = button.dataset.warehouseId || "";
       map.dataset.warehouseX = button.dataset.warehouseX || "";
       map.dataset.warehouseY = button.dataset.warehouseY || "";
       map.dataset.originalX = button.dataset.destX || "";
@@ -344,8 +689,12 @@
       map.dataset.currentX = button.dataset.currentX || "";
       map.dataset.currentY = button.dataset.currentY || "";
 
-      setSelectedPoint(button.dataset.destX, button.dataset.destY);
       modal.hidden = false;
+      clearClickCoordinate(map);
+      destinationReadout.hidden = true;
+      labelX.textContent = "";
+      labelY.textContent = "";
+      setSelectedPoint(button.dataset.destX, button.dataset.destY, false);
     }
 
     document.querySelectorAll(".ups-destination-edit").forEach((button) => {
@@ -353,15 +702,26 @@
     });
 
     surface.addEventListener("click", (event) => {
-      const bounds = readBounds(map);
-      if (bounds.minX === null || bounds.maxX === null || bounds.minY === null || bounds.maxY === null) return;
-      const rect = surface.getBoundingClientRect();
-      const ratioX = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-      const ratioY = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
-      const x = Math.round(bounds.minX + ratioX * (bounds.maxX - bounds.minX));
-      const y = Math.round(bounds.maxY - ratioY * (bounds.maxY - bounds.minY));
-      setSelectedPoint(x, y);
+      const coords = mapCoordinatesFromClick(map, surface, event);
+      showClickCoordinate(map, coords.x, coords.y);
+      setSelectedPoint(coords.x, coords.y, true);
     });
+
+    const expandButton = document.getElementById("destination-expand");
+    const resetButton = document.getElementById("destination-reset");
+    if (expandButton) {
+      expandButton.addEventListener("click", () => {
+        const scale = Math.max(1, toNumber(map.dataset.scale) || 1);
+        map.dataset.scale = String(scale * 2);
+        renderMap(map);
+      });
+    }
+    if (resetButton) {
+      resetButton.addEventListener("click", () => {
+        map.dataset.scale = "1";
+        renderMap(map);
+      });
+    }
 
     modal.querySelectorAll(".ups-modal-cancel").forEach((button) => button.addEventListener("click", closeModal));
     modal.addEventListener("click", (event) => {
@@ -370,6 +730,8 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !modal.hidden) closeModal();
     });
+
+    window.addEventListener("beforeunload", stopLivePolling);
   })();
 </script>
 {% endblock %}
