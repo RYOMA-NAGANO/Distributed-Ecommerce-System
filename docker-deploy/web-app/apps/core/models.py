@@ -108,6 +108,21 @@ class DestinationUpdate(models.Model):
         db_table = "destination_updates"
 
 
+class StatusUpdate(models.Model):
+    shipment = models.ForeignKey(
+        Package,
+        on_delete=models.CASCADE,
+        db_column="shipment_id",
+        related_name="status_updates",
+    )
+
+    status = models.CharField(max_length=32)
+    update_time = models.IntegerField()
+
+    class Meta:
+        db_table = "status_updates"
+
+
 class Warehouse(models.Model):
     warehouse_id = models.IntegerField(primary_key=True)
     x = models.IntegerField()

@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import DestinationUpdate, Package, PositionUpdate, TrackedShipment, Truck, Warehouse
+from .models import (
+    DestinationUpdate,
+    Package,
+    PositionUpdate,
+    StatusUpdate,
+    TrackedShipment,
+    Truck,
+    Warehouse,
+)
 
 
 @admin.register(Truck)
@@ -42,6 +50,12 @@ class PositionUpdateAdmin(admin.ModelAdmin):
 @admin.register(DestinationUpdate)
 class DestinationUpdateAdmin(admin.ModelAdmin):
     list_display = ("id", "shipment", "x", "y", "update_time")
+
+
+@admin.register(StatusUpdate)
+class StatusUpdateAdmin(admin.ModelAdmin):
+    list_display = ("id", "shipment", "status", "update_time")
+    list_filter = ("status",)
 
 
 @admin.register(TrackedShipment)

@@ -14,6 +14,7 @@ from apps.core.auip_services import (
     auip_rotate_pickup_truck,
     auip_retry_pending_load_requests,
     auip_set_truck_arrived_for_truck,
+    record_status_update,
 )
 from apps.core.models import Package, PositionUpdate, Truck
 from apps.interop.services import amazon_client
@@ -256,8 +257,11 @@ class Command(BaseCommand):
                 )
 
                 locked.delivery_seqnum = seq
+                previous_status = locked.status
                 locked.status = S.OUT_FOR_DELIVERY
                 locked.save(update_fields=["delivery_seqnum", "status"])
+                if locked.status != previous_status:
+                    record_status_update(locked, locked.status)
                 Truck.objects.filter(truck_id=locked.truck_id).update(
                     truck_status=Truck.TruckStatus.DELIVERING
                 )
@@ -324,9 +328,12 @@ class Command(BaseCommand):
             return
 
         if package.status == S.OUT_FOR_DELIVERY:
+            previous_status = package.status
             package.status = S.DELIVERED
             package.delivery_seqnum = None
             package.save(update_fields=["status", "delivery_seqnum"])
+            if package.status != previous_status:
+                record_status_update(package, package.status)
             try:
                 amazon_client.notify_delivered(package, package.dest_x, package.dest_y)
             except Exception as exc:
@@ -410,9 +417,12 @@ class Command(BaseCommand):
             .first()
         )
         if delivery_pkg is not None:
+            previous_status = delivery_pkg.status
             delivery_pkg.delivery_seqnum = None
             delivery_pkg.status = S.LOADED
             delivery_pkg.save(update_fields=["delivery_seqnum", "status"])
+            if delivery_pkg.status != previous_status:
+                record_status_update(delivery_pkg, delivery_pkg.status)
             self.stdout.write(
                 self.style.WARNING(
                     f"World delivery error shipment={delivery_pkg.shipment_id} "

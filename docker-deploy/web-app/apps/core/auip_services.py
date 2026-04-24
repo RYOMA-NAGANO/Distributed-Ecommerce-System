@@ -8,7 +8,7 @@ from django.db.models import Case, IntegerField, Value, When
 from apps.interop.services import amazon_client
 
 from . import auip_states as S
-from .models import DestinationUpdate, Package, PositionUpdate, Truck
+from .models import DestinationUpdate, Package, PositionUpdate, StatusUpdate, Truck
 from .services import (
     ShipmentNotFoundError,
     ShipmentStateError,
@@ -68,6 +68,22 @@ def _record_position_update(package: Package, x: int, y: int) -> None:
         x=int(x),
         y=int(y),
         update_time=int(time.time()),
+    )
+
+
+def record_status_update(package: Package, status: str, *, update_time: int | None = None) -> None:
+    timestamp = int(time.time()) if update_time is None else int(update_time)
+    latest = (
+        StatusUpdate.objects.filter(shipment=package)
+        .order_by("-update_time", "-id")
+        .first()
+    )
+    if latest and latest.status == status:
+        return
+    StatusUpdate.objects.create(
+        shipment=package,
+        status=str(status),
+        update_time=timestamp,
     )
 
 
@@ -256,6 +272,7 @@ def auip_create_shipment(payload: dict) -> Package:
         status=S.CREATED,
     )
     _record_destination_update(package, package.dest_x, package.dest_y)
+    record_status_update(package, package.status)
     return package
 
 
@@ -276,10 +293,13 @@ def auip_request_pickup(shipment_id: str, warehouse_id: int, world_id: int) -> P
         return p
 
     # Pickup dispatch chooses truck at send-time in daemon loop.
+    previous_status = p.status
     p.truck = None
     p.status = S.TRUCK_EN_ROUTE
     p.pickup_seqnum = None
     p.save(update_fields=["truck", "status", "pickup_seqnum"])
+    if p.status != previous_status:
+        record_status_update(p, p.status)
     return p
 
 
@@ -304,11 +324,14 @@ def auip_mark_ready(shipment_id: str, warehouse_id: int, world_id: int) -> Packa
         y=int(p.warehouse_y),
     ).exists()
     # If truck is already at warehouse, keep that stronger state.
+    previous_status = p.status
     if p.status == S.TRUCK_ARRIVED:
         p.status = S.TRUCK_ARRIVED
     else:
         p.status = S.PACKED
     p.save(update_fields=["status"])
+    if p.status != previous_status:
+        record_status_update(p, p.status)
     if should_record_warehouse_position:
         _record_position_update(p, p.warehouse_x, p.warehouse_y)
     return p
@@ -322,8 +345,11 @@ def auip_try_send_load_request_and_loading(package: Package) -> None:
     with transaction.atomic():
         p = Package.objects.select_for_update().filter(shipment_id=package.shipment_id).first()
         if p and p.status in (S.PACKED, S.TRUCK_ARRIVED):
+            previous_status = p.status
             p.status = S.LOADING
             p.save(update_fields=["status"])
+            if p.status != previous_status:
+                record_status_update(p, p.status)
 
 
 def auip_try_send_load_request_when_possible(shipment_id: str) -> bool:
@@ -426,10 +452,17 @@ def auip_recover_stuck_loading(limit: int = 20, world_id: int | None = None) -> 
     ids = list(qs.values_list("shipment_id", flat=True)[:limit])
     if not ids:
         return 0
-    updated = Package.objects.filter(
+    updated = 0
+    for package in Package.objects.select_for_update().filter(
         shipment_id__in=ids,
         status=S.LOADING,
-    ).update(status=S.TRUCK_ARRIVED)
+    ):
+        previous_status = package.status
+        package.status = S.TRUCK_ARRIVED
+        package.save(update_fields=["status"])
+        if package.status != previous_status:
+            record_status_update(package, package.status)
+            updated += 1
     if updated:
         logger.info("recovered %d stuck LOADING packages", updated)
     return int(updated)
@@ -501,10 +534,13 @@ def auip_rotate_pickup_truck(shipment_id: str) -> tuple[int | None, int | None]:
 
     old_truck_id = package.truck_id
 
+    previous_status = package.status
     package.truck = None
     package.pickup_seqnum = None
     package.status = S.TRUCK_EN_ROUTE
     package.save(update_fields=["truck", "pickup_seqnum", "status"])
+    if package.status != previous_status:
+        record_status_update(package, package.status)
 
     _release_truck_if_orphaned(old_truck_id, exclude_shipment_id=shipment_id)
     return old_truck_id, None
@@ -525,8 +561,11 @@ def auip_confirm_loaded(shipment_id: str, truck_id: int, warehouse_id: int, worl
         return p
     if p.status not in (S.LOADING, S.TRUCK_ARRIVED, S.PACKED):
         raise ShipmentStateError(f"loaded not allowed in state {p.status}")
+    previous_status = p.status
     p.status = S.LOADED
     p.save(update_fields=["status"])
+    if p.status != previous_status:
+        record_status_update(p, p.status)
     return p
 
 
@@ -552,10 +591,13 @@ def auip_update_destination(shipment_id: str, x: int, y: int, reason: str) -> Pa
         raise ShipmentNotFoundError("Unknown shipment_id.")
     if p.status in S.DESTINATION_BLOCKED:
         raise ShipmentStateError(f"destination update not allowed in state {p.status}")
+    previous_status = p.status
     p.dest_x = int(x)
     p.dest_y = int(y)
     p.status = S.UPDATED
     p.save(update_fields=["dest_x", "dest_y", "status"])
+    if p.status != previous_status:
+        record_status_update(p, p.status)
     _record_destination_update(p, p.dest_x, p.dest_y)
     return p
 
@@ -615,6 +657,7 @@ def auip_set_truck_arrived_for_truck(
 
     updated_count = 0
     for package in qs:
+        previous_status = package.status
         update_fields = []
         if package.status in (S.TRUCK_EN_ROUTE, S.PACKED):
             package.status = S.TRUCK_ARRIVED
@@ -624,6 +667,8 @@ def auip_set_truck_arrived_for_truck(
             update_fields.append("pickup_seqnum")
         if update_fields:
             package.save(update_fields=update_fields)
+            if package.status != previous_status:
+                record_status_update(package, package.status)
         updated_count += 1
         try:
             amazon_client.notify_truck_arrived(package, location_x, location_y)

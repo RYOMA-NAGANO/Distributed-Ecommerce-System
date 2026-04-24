@@ -46,27 +46,78 @@
                     data-shipment-id="{{ package.shipment_id }}"
                     data-dest-x="{{ package.dest_x }}"
                     data-dest-y="{{ package.dest_y }}"
+                    data-current-x="{{ package.current_position_x }}"
+                    data-current-y="{{ package.current_position_y }}"
+                    data-warehouse-x="{{ package.warehouse_x }}"
+                    data-warehouse-y="{{ package.warehouse_y }}"
+                    data-min-x="{{ package.map_min_x }}"
+                    data-max-x="{{ package.map_max_x }}"
+                    data-min-y="{{ package.map_min_y }}"
+                    data-max-y="{{ package.map_max_y }}"
                   >Edit destination</button>
                 {% endif %}
-                <button
-                  type="button"
-                  class="ups-btn ups-btn-primary ups-details-view"
-                  data-target="details-{{ forloop.counter }}"
-                  data-events="{{ package.detail_events_json }}"
-                  aria-expanded="false"
-                  aria-controls="details-{{ forloop.counter }}"
-                >View details</button>
+                {% if package.user_id == request.user.id %}
+                  <button
+                    type="button"
+                    class="ups-btn ups-btn-primary ups-details-view"
+                    data-target="details-{{ forloop.counter }}"
+                    data-events="{{ package.detail_events_json }}"
+                    aria-expanded="false"
+                    aria-controls="details-{{ forloop.counter }}"
+                  >View details</button>
+                {% endif %}
               </div>
             </div>
             <p class="ups-muted" style="margin:0.5rem 0 0;font-size:0.88rem;">
-              Destination ({{ package.dest_x }}, {{ package.dest_y }}) · Warehouse {{ package.warehouse_id }}
+              Destination ({{ package.dest_x }}, {{ package.dest_y }}) · Current {{ package.current_position_display }} · Warehouse {{ package.warehouse_id }}
             </p>
             <div class="ups-detail-collapse" id="details-{{ forloop.counter }}" hidden>
               <div class="ups-detail-collapse-head">
-                <strong>Package history</strong>
+                <strong>Package details</strong>
                 <span class="ups-muted">{{ package.shipment_id }}</span>
               </div>
-              <div class="ups-detail-timeline"></div>
+              <div class="ups-detail-topbar">
+                <div class="ups-detail-content-title">Package content</div>
+                <div class="ups-content-chips">
+                  {% for label in package.item_summaries %}
+                    <span class="ups-content-chip">{{ label }}</span>
+                  {% endfor %}
+                </div>
+              </div>
+              <div class="ups-detail-layout">
+                <section class="ups-detail-map-pane">
+                  <div
+                    class="ups-grid-map ups-package-map"
+                    data-min-x="{{ package.map_min_x }}"
+                    data-max-x="{{ package.map_max_x }}"
+                    data-min-y="{{ package.map_min_y }}"
+                    data-max-y="{{ package.map_max_y }}"
+                    data-warehouse-x="{{ package.warehouse_x }}"
+                    data-warehouse-y="{{ package.warehouse_y }}"
+                    data-current-x="{{ package.current_position_x }}"
+                    data-current-y="{{ package.current_position_y }}"
+                    data-destination-x="{{ package.dest_x }}"
+                    data-destination-y="{{ package.dest_y }}">
+                    <div class="ups-grid-surface ups-grid-readonly">
+                      <span class="ups-grid-marker ups-marker-warehouse" data-marker="warehouse"></span>
+                      <span class="ups-grid-marker ups-marker-current" data-marker="current"></span>
+                      <span class="ups-grid-marker ups-marker-destination" data-marker="destination"></span>
+                    </div>
+                    <div class="ups-grid-meta">
+                      <div class="ups-grid-legend">
+                        <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-warehouse"></span>Warehouse</span>
+                        <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-current"></span>Current</span>
+                        <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-destination"></span>Destination</span>
+                      </div>
+                      <div class="ups-grid-readout">Current position {{ package.current_position_display }} · {{ package.current_position_note }}</div>
+                    </div>
+                  </div>
+                </section>
+                <section class="ups-detail-timeline-pane">
+                  <div class="ups-detail-timeline-title">Status/Position timeline</div>
+                  <div class="ups-detail-timeline"></div>
+                </section>
+              </div>
             </div>
           </article>
         {% endfor %}
@@ -75,19 +126,49 @@
         <div class="ups-modal-backdrop" id="destination-modal" hidden>
           <div class="ups-modal-window ups-message-box" role="dialog" aria-modal="true" aria-labelledby="destination-modal-title">
             <div class="ups-modal-head">
-              <h2 id="destination-modal-title">Edit destination</h2>
+              <h2 id="destination-modal-title">Edit destination on grid</h2>
             </div>
             <form method="post" class="ups-form" id="destination-form">
               {% csrf_token %}
               <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <input id="destination-x" type="hidden" name="dest_x" required>
+              <input id="destination-y" type="hidden" name="dest_y" required>
               <p class="ups-muted" id="destination-shipment" style="margin:0 0 0.75rem;"></p>
-              <label for="destination-x">Destination X</label>
-              <input id="destination-x" type="number" name="dest_x" required>
-              <label for="destination-y">Destination Y</label>
-              <input id="destination-y" type="number" name="dest_y" required>
+
+              <div
+                class="ups-grid-map ups-destination-map"
+                id="destination-map"
+                data-min-x=""
+                data-max-x=""
+                data-min-y=""
+                data-max-y=""
+                data-warehouse-x=""
+                data-warehouse-y=""
+                data-original-x=""
+                data-original-y=""
+                data-selected-x=""
+                data-selected-y="">
+                <div class="ups-grid-surface" id="destination-map-surface">
+                  <span class="ups-grid-marker ups-marker-warehouse" data-marker="warehouse"></span>
+                  <span class="ups-grid-marker ups-marker-original" data-marker="original"></span>
+                  <span class="ups-grid-marker ups-marker-selected" data-marker="selected"></span>
+                </div>
+                <div class="ups-grid-meta">
+                  <div class="ups-grid-legend">
+                    <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-warehouse"></span>Warehouse</span>
+                    <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-original"></span>Original</span>
+                    <span class="ups-grid-legend-item"><span class="ups-grid-legend-dot ups-marker-selected"></span>Selected</span>
+                  </div>
+                  <div class="ups-grid-readout">
+                    Selected destination:
+                    (<span id="destination-x-label"></span>, <span id="destination-y-label"></span>)
+                  </div>
+                </div>
+              </div>
+
               <div class="ups-actions">
                 <button type="button" class="ups-btn ups-btn-outline ups-modal-cancel">Cancel</button>
-                <button type="submit" class="ups-btn ups-btn-primary">Save destination</button>
+                <button type="submit" class="ups-btn ups-btn-primary">Confirm redirect</button>
               </div>
             </form>
           </div>
@@ -100,48 +181,63 @@
     {% endif %}
   </div>
 </div>
-{% if show_destination_modal %}
-  <script>
-    (function () {
-      const modal = document.getElementById("destination-modal");
-      if (!modal) return;
-
-      const form = document.getElementById("destination-form");
-      const inputX = document.getElementById("destination-x");
-      const inputY = document.getElementById("destination-y");
-      const shipmentLabel = document.getElementById("destination-shipment");
-      const closeButtons = modal.querySelectorAll(".ups-modal-close, .ups-modal-cancel");
-
-      function closeModal() {
-        modal.hidden = true;
-      }
-
-      document.querySelectorAll(".ups-destination-edit").forEach((button) => {
-        button.addEventListener("click", () => {
-          form.action = button.dataset.action;
-          inputX.value = button.dataset.destX || "";
-          inputY.value = button.dataset.destY || "";
-          shipmentLabel.textContent = button.dataset.shipmentId || "";
-          modal.hidden = false;
-          inputX.focus();
-        });
-      });
-
-      closeButtons.forEach((button) => button.addEventListener("click", closeModal));
-      modal.addEventListener("click", (event) => {
-        if (event.target === modal) closeModal();
-      });
-      document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && !modal.hidden) closeModal();
-      });
-    })();
-  </script>
-{% endif %}
 <script>
   (function () {
+    function toNumber(value) {
+      if (value === "" || value === null || value === undefined) return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function readBounds(map) {
+      return {
+        minX: toNumber(map.dataset.minX),
+        maxX: toNumber(map.dataset.maxX),
+        minY: toNumber(map.dataset.minY),
+        maxY: toNumber(map.dataset.maxY),
+      };
+    }
+
+    function readPoint(map, key) {
+      const x = toNumber(map.dataset[key + "X"]);
+      const y = toNumber(map.dataset[key + "Y"]);
+      if (x === null || y === null) return null;
+      return { x, y };
+    }
+
+    function toPercent(value, min, max) {
+      if (max === min) return 50;
+      return ((value - min) / (max - min)) * 100;
+    }
+
+    function placeMarker(surface, marker, point, bounds) {
+      if (!marker) return;
+      if (!point) {
+        marker.style.display = "none";
+        return;
+      }
+      marker.style.display = "block";
+      marker.style.left = toPercent(point.x, bounds.minX, bounds.maxX) + "%";
+      marker.style.top = (100 - toPercent(point.y, bounds.minY, bounds.maxY)) + "%";
+      surface.appendChild(marker);
+    }
+
+    function renderMap(map) {
+      if (!map) return;
+      const bounds = readBounds(map);
+      const surface = map.querySelector(".ups-grid-surface");
+      if (!surface || bounds.minX === null || bounds.maxX === null || bounds.minY === null || bounds.maxY === null) return;
+
+      placeMarker(surface, map.querySelector('[data-marker="warehouse"]'), readPoint(map, "warehouse"), bounds);
+      placeMarker(surface, map.querySelector('[data-marker="current"]'), readPoint(map, "current"), bounds);
+      placeMarker(surface, map.querySelector('[data-marker="destination"]'), readPoint(map, "destination"), bounds);
+      placeMarker(surface, map.querySelector('[data-marker="original"]'), readPoint(map, "original"), bounds);
+      placeMarker(surface, map.querySelector('[data-marker="selected"]'), readPoint(map, "selected"), bounds);
+    }
+
     function formatTime(epochSeconds) {
       const timestamp = Number(epochSeconds);
-      if (!Number.isFinite(timestamp)) return "";
+      if (!Number.isFinite(timestamp) || timestamp <= 0) return "Now";
       return new Date(timestamp * 1000).toLocaleString();
     }
 
@@ -150,7 +246,7 @@
       if (!events.length) {
         const empty = document.createElement("p");
         empty.className = "ups-muted";
-        empty.textContent = "No position or destination updates recorded.";
+        empty.textContent = "No status or position updates recorded.";
         timeline.appendChild(empty);
         return;
       }
@@ -178,6 +274,7 @@
         const panel = document.getElementById(button.dataset.target);
         if (!panel) return;
         const timeline = panel.querySelector(".ups-detail-timeline");
+        const map = panel.querySelector(".ups-package-map");
         const isOpening = panel.hidden;
 
         document.querySelectorAll(".ups-detail-collapse").forEach((otherPanel) => {
@@ -200,9 +297,78 @@
           events = [];
         }
         renderEvents(timeline, events);
+        renderMap(map);
         panel.hidden = false;
         button.setAttribute("aria-expanded", "true");
       });
+    });
+
+    const modal = document.getElementById("destination-modal");
+    if (!modal) return;
+
+    const form = document.getElementById("destination-form");
+    const inputX = document.getElementById("destination-x");
+    const inputY = document.getElementById("destination-y");
+    const labelX = document.getElementById("destination-x-label");
+    const labelY = document.getElementById("destination-y-label");
+    const shipmentLabel = document.getElementById("destination-shipment");
+    const map = document.getElementById("destination-map");
+    const surface = document.getElementById("destination-map-surface");
+
+    function closeModal() {
+      modal.hidden = true;
+    }
+
+    function setSelectedPoint(x, y) {
+      map.dataset.selectedX = String(x);
+      map.dataset.selectedY = String(y);
+      inputX.value = String(x);
+      inputY.value = String(y);
+      labelX.textContent = String(x);
+      labelY.textContent = String(y);
+      renderMap(map);
+    }
+
+    function openModalForButton(button) {
+      form.action = button.dataset.action;
+      shipmentLabel.textContent = button.dataset.shipmentId || "";
+
+      map.dataset.minX = button.dataset.minX || "";
+      map.dataset.maxX = button.dataset.maxX || "";
+      map.dataset.minY = button.dataset.minY || "";
+      map.dataset.maxY = button.dataset.maxY || "";
+      map.dataset.warehouseX = button.dataset.warehouseX || "";
+      map.dataset.warehouseY = button.dataset.warehouseY || "";
+      map.dataset.originalX = button.dataset.destX || "";
+      map.dataset.originalY = button.dataset.destY || "";
+      map.dataset.currentX = button.dataset.currentX || "";
+      map.dataset.currentY = button.dataset.currentY || "";
+
+      setSelectedPoint(button.dataset.destX, button.dataset.destY);
+      modal.hidden = false;
+    }
+
+    document.querySelectorAll(".ups-destination-edit").forEach((button) => {
+      button.addEventListener("click", () => openModalForButton(button));
+    });
+
+    surface.addEventListener("click", (event) => {
+      const bounds = readBounds(map);
+      if (bounds.minX === null || bounds.maxX === null || bounds.minY === null || bounds.maxY === null) return;
+      const rect = surface.getBoundingClientRect();
+      const ratioX = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+      const ratioY = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
+      const x = Math.round(bounds.minX + ratioX * (bounds.maxX - bounds.minX));
+      const y = Math.round(bounds.maxY - ratioY * (bounds.maxY - bounds.minY));
+      setSelectedPoint(x, y);
+    });
+
+    modal.querySelectorAll(".ups-modal-cancel").forEach((button) => button.addEventListener("click", closeModal));
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) closeModal();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !modal.hidden) closeModal();
     });
   })();
 </script>
