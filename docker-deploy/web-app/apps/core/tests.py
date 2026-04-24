@@ -335,6 +335,27 @@ class PackageOwnershipSearchTests(TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["error_code"], "WORLD_NOT_READY")
 
+    @override_settings(WORLD_ID="")
+    def test_world_connect_message_initializes_three_default_trucks(self):
+        from apps.interop.services.world_client import build_connect_message
+
+        Truck.objects.all().delete()
+
+        message = build_connect_message()
+
+        self.assertEqual(
+            [(truck.id, truck.x, truck.y) for truck in message.trucks],
+            [(1, 1, 1), (2, 5, 1), (3, 9, 1)],
+        )
+        self.assertEqual(
+            list(Truck.objects.order_by("truck_id").values_list("truck_id", "truck_status")),
+            [
+                (1, Truck.TruckStatus.IDLE),
+                (2, Truck.TruckStatus.IDLE),
+                (3, Truck.TruckStatus.IDLE),
+            ],
+        )
+
     def test_non_owner_search_result_cannot_view_details(self):
         package = self.create_owned_package(user=self.alice)
         PositionUpdate.objects.create(shipment=package, x=1, y=2, update_time=20)
@@ -687,6 +708,7 @@ class PackageOwnershipSearchTests(TestCase):
             truck_id=14,
             truck_status=Truck.TruckStatus.ARRIVE_WAREHOUSE,
         )
+        Truck.objects.exclude(truck_id=truck.truck_id).update(truck_status=Truck.TruckStatus.INVALID)
         self.create_owned_package(
             truck=truck,
             shipment_id="PKG-BLOCK-PICKUP",

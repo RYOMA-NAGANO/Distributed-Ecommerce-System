@@ -9,6 +9,8 @@ from google.protobuf.internal.encoder import _VarintBytes
 
 from protos import world_ups_pb2
 
+DEFAULT_TRUCK_IDS = (1, 2, 3)
+
 
 class WorldConnectionError(Exception):
     pass
@@ -48,17 +50,17 @@ def build_connect_message(world_id_override: int | None = None):
     if not connect.HasField("worldid"):
         from apps.core.models import Truck
 
+        for truck_id in DEFAULT_TRUCK_IDS:
+            Truck.objects.get_or_create(
+                truck_id=int(truck_id),
+                defaults={"truck_status": Truck.TruckStatus.IDLE},
+            )
+
         known_ids = list(
             Truck.objects.exclude(truck_status=Truck.TruckStatus.INVALID)
             .order_by("truck_id")
             .values_list("truck_id", flat=True)
         )
-        if not known_ids:
-            truck, _ = Truck.objects.get_or_create(
-                truck_id=1,
-                defaults={"truck_status": Truck.TruckStatus.IDLE},
-            )
-            known_ids = [int(truck.truck_id)]
 
         for truck_id in known_ids:
             init_truck = connect.trucks.add()

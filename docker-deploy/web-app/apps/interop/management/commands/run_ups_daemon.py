@@ -21,7 +21,7 @@ from apps.core.models import Package, PositionUpdate, Truck
 from apps.interop.services import amazon_client
 from apps.interop.services.world_response_dedupe import claim_world_response_seq
 from apps.interop.services.seqnum import allocate_next_seqnum
-from apps.interop.services.world_binding import clear_world_binding, get_world_binding, set_world_binding
+from apps.interop.services.world_binding import clear_world_binding, set_world_binding
 
 
 class Command(BaseCommand):
@@ -87,25 +87,12 @@ class Command(BaseCommand):
         timeout = options["timeout"]
         read_timeout = options["read_timeout"]
         idle_log_seconds = options["idle_log_seconds"]
-        session = None
-        existing_binding = get_world_binding()
-        if existing_binding is not None:
-            try:
-                session = open_world_session(
-                    connect_timeout=timeout,
-                    read_timeout=read_timeout,
-                    world_id=int(existing_binding.world_id),
-                )
-            except WorldConnectionError:
-                clear_world_binding()
-                session = None
-
-        if session is None:
-            try:
-                session = open_world_session(connect_timeout=timeout, read_timeout=read_timeout)
-            except WorldConnectionError as exc:
-                clear_world_binding()
-                raise CommandError(str(exc)) from exc
+        clear_world_binding()
+        try:
+            session = open_world_session(connect_timeout=timeout, read_timeout=read_timeout)
+        except WorldConnectionError as exc:
+            clear_world_binding()
+            raise CommandError(str(exc)) from exc
 
         result = session.handshake
         self._current_world_id = int(result.world_id)
