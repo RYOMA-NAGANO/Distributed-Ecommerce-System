@@ -293,7 +293,9 @@ def _build_order_detail_context(order: Order, event_page_number=None):
         "destination": f"({shipment_model.destination_x}, {shipment_model.destination_y})",
     }
 
-    shipment_events = shipment_model.events.order_by("-created_at", "-id")
+    shipment_events = _dedupe_shipment_events(
+        shipment_model.events.order_by("-created_at", "-id")
+    )
     shipment_events_page_obj = Paginator(shipment_events, 8).get_page(event_page_number)
 
     return {
@@ -304,3 +306,22 @@ def _build_order_detail_context(order: Order, event_page_number=None):
         "shipment_events": shipment_events_page_obj.object_list,
         "shipment_events_page_obj": shipment_events_page_obj,
     }
+
+
+def _dedupe_shipment_events(events):
+    deduped_events = []
+    last_signature = None
+
+    for event in events:
+        signature = (
+            event.source,
+            event.event_type,
+            event.status_snapshot,
+            event.error_message,
+        )
+        if signature == last_signature:
+            continue
+        deduped_events.append(event)
+        last_signature = signature
+
+    return deduped_events

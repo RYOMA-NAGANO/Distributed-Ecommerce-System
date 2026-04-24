@@ -31,7 +31,10 @@ def _recover_packing(world_client, ack_mgr, pending_packs: dict, world_id: int =
     stuck = stuck.prefetch_related("items__product", "warehouse")
 
     for shipment in stuck:
-        if shipment.shipment_id in pending_packs.values():
+        if shipment.shipment_id in {
+            pending["shipment_id"]
+            for pending in pending_packs.values()
+        }:
             continue
         logger.info(
             "reconcile: re-issuing topack for stuck PACKING shipment %s",
@@ -54,7 +57,10 @@ def _recover_loading(world_client, ack_mgr, pending_loads: dict, world_id: int =
         ready_to_load = ready_to_load.filter(world_id=world_id)
 
     for shipment in ready_to_load:
-        if shipment.shipment_id in pending_loads.values():
+        if shipment.shipment_id in {
+            pending["shipment_id"]
+            for pending in pending_loads.values()
+        }:
             continue
         logger.info(
             "reconcile: re-issuing load for shipment %s (status=%s truck=%d)",
