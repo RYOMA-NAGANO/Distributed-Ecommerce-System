@@ -17,7 +17,7 @@ class _AckStub:
     def next_seqnum(self) -> int:
         return self._seqnum
 
-    def register(self, seqnum, cmd) -> None:
+    def register(self, seqnum, cmd, **_kwargs) -> None:
         self.registered.append((int(seqnum), cmd))
 
 
@@ -70,7 +70,8 @@ class ShipmentWorkerLoadRetryTests(TestCase):
         self.assertTrue(issued)
         shipment.refresh_from_db()
         self.assertEqual(shipment.status, ShipmentStatus.LOADING)
-        self.assertEqual(pending_loads, {77: shipment.shipment_id})
+        self.assertIn(77, pending_loads)
+        self.assertEqual(pending_loads[77]["shipment_id"], shipment.shipment_id)
         self.assertEqual(len(ack_mgr.registered), 1)
         self.assertEqual(len(world_client.sent), 1)
 
@@ -81,4 +82,3 @@ class ShipmentWorkerLoadRetryTests(TestCase):
         self.assertEqual(load.truckid, shipment.truck_id)
         self.assertEqual(load.shipid, int(shipment.shipment_id))
         self.assertEqual(load.seqnum, 77)
-

@@ -1,11 +1,12 @@
 import logging
+import os
 import threading
 import time
 
 logger = logging.getLogger(__name__)
 
-RETRY_INTERVAL = 5   # seconds between retries
-MAX_RETRIES = 20
+RETRY_INTERVAL = int(os.getenv("ACK_RETRY_INTERVAL_SECONDS", "5"))  # seconds between retries
+MAX_RETRIES = int(os.getenv("ACK_MAX_RETRIES", "200"))
 
 
 class AckManager:

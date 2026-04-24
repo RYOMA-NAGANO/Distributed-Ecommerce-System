@@ -10,8 +10,10 @@ from .auip_services import (
     auip_create_shipment,
     auip_confirm_loaded,
     auip_mark_ready,
+    auip_recover_stale_delivery_requests,
     auip_recover_stuck_loading,
     auip_try_send_load_request_and_loading,
+    auip_try_send_load_request_when_possible,
     auip_update_destination,
     update_destination_for_owner,
 )
@@ -563,6 +565,47 @@ class PackageOwnershipSearchTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("loaded", mail.outbox[0].subject.lower())
 
+    def test_try_send_load_request_requires_truck_arrived_status(self):
+        truck = Truck.objects.create(
+            truck_id=181,
+            truck_status=Truck.TruckStatus.ARRIVE_WAREHOUSE,
+        )
+        package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-LOAD-GUARD",
+            status=S.PACKED,
+        )
+
+        with patch("apps.core.auip_services.amazon_client.notify_load_request") as notify_mock:
+            sent = auip_try_send_load_request_when_possible(package.shipment_id)
+
+        package.refresh_from_db()
+        self.assertFalse(sent)
+        self.assertEqual(package.status, S.PACKED)
+        notify_mock.assert_not_called()
+
+    def test_try_send_load_request_sends_after_truck_arrived(self):
+        truck = Truck.objects.create(
+            truck_id=182,
+            truck_status=Truck.TruckStatus.ARRIVE_WAREHOUSE,
+        )
+        package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-LOAD-TRUCK-ARRIVED",
+            status=S.TRUCK_ARRIVED,
+        )
+
+        with patch(
+            "apps.core.auip_services.amazon_client.notify_load_request",
+            return_value={"status": S.LOADING},
+        ) as notify_mock:
+            sent = auip_try_send_load_request_when_possible(package.shipment_id)
+
+        package.refresh_from_db()
+        self.assertTrue(sent)
+        self.assertEqual(package.status, S.LOADING)
+        notify_mock.assert_called_once()
+
     def test_destination_update_emails_owner(self):
         package = self.create_owned_package(status=S.PACKED)
 
@@ -804,3 +847,43 @@ class PackageOwnershipSearchTests(TestCase):
             ),
             [S.PACKED],
         )
+
+    def test_recover_stale_delivery_requeues_when_truck_is_idle(self):
+        truck = Truck.objects.create(
+            truck_id=16,
+            truck_status=Truck.TruckStatus.IDLE,
+        )
+        package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-STUCK-DELIVERY-1",
+            status=S.OUT_FOR_DELIVERY,
+            world_package_id=1007,
+            delivery_seqnum=555,
+        )
+
+        updated = auip_recover_stale_delivery_requests(world_id=package.world_id)
+
+        self.assertEqual(updated, 1)
+        package.refresh_from_db()
+        self.assertEqual(package.status, S.OUT_FOR_DELIVERY)
+        self.assertEqual(package.truck_id, truck.truck_id)
+        self.assertIsNone(package.delivery_seqnum)
+
+    def test_recover_stale_delivery_keeps_active_delivery_in_flight(self):
+        truck = Truck.objects.create(
+            truck_id=17,
+            truck_status=Truck.TruckStatus.DELIVERING,
+        )
+        package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-STUCK-DELIVERY-2",
+            status=S.OUT_FOR_DELIVERY,
+            world_package_id=1008,
+            delivery_seqnum=556,
+        )
+
+        updated = auip_recover_stale_delivery_requests(world_id=package.world_id)
+
+        self.assertEqual(updated, 0)
+        package.refresh_from_db()
+        self.assertEqual(package.delivery_seqnum, 556)

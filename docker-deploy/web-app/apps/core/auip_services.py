@@ -391,7 +391,9 @@ def auip_try_send_load_request_when_possible(shipment_id: str) -> bool:
     )
     if package is None:
         return False
-    if package.status not in (S.PACKED, S.TRUCK_ARRIVED):
+    # Guard against premature load requests: Amazon only considers loading valid
+    # after truck-arrived has been persisted for the shipment.
+    if package.status != S.TRUCK_ARRIVED:
         return False
     if package.truck_id is None:
         return False
@@ -408,7 +410,7 @@ def auip_try_send_load_request_when_possible(shipment_id: str) -> bool:
 
 def auip_retry_pending_load_requests(limit: int = 20, world_id: int | None = None) -> None:
     qs = Package.objects.select_related("truck").filter(
-        status__in=[S.PACKED, S.TRUCK_ARRIVED],
+        status=S.TRUCK_ARRIVED,
         truck__truck_status__in=[
             Truck.TruckStatus.ARRIVE_WAREHOUSE,
             Truck.TruckStatus.LOADING,
@@ -462,6 +464,57 @@ def auip_recover_stale_pickup_requests(limit: int = 30, world_id: int | None = N
 
     if cleared:
         logger.info("cleared %d stale pickup seqnums", cleared)
+    return cleared
+
+
+@transaction.atomic
+def auip_recover_stale_delivery_requests(limit: int = 30, world_id: int | None = None) -> int:
+    """
+    Self-heal rows where delivery_seqnum stayed set even though the truck is no
+    longer actively delivering. Those rows are otherwise skipped forever.
+    """
+    qs = Package.objects.select_for_update().filter(
+        status=S.OUT_FOR_DELIVERY,
+        delivery_seqnum__isnull=False,
+    )
+    if world_id is not None:
+        qs = qs.filter(world_id=int(world_id))
+
+    shipment_ids = list(qs.order_by("shipment_id").values_list("shipment_id", flat=True)[:limit])
+    if not shipment_ids:
+        return 0
+
+    cleared = 0
+    for shipment_id in shipment_ids:
+        package = (
+            Package.objects.select_for_update()
+            .filter(
+                shipment_id=shipment_id,
+                status=S.OUT_FOR_DELIVERY,
+                delivery_seqnum__isnull=False,
+            )
+            .only("shipment_id", "truck_id", "delivery_seqnum")
+            .first()
+        )
+        if package is None:
+            continue
+        if package.truck_id is not None:
+            truck_status = (
+                Truck.objects.filter(truck_id=int(package.truck_id))
+                .values_list("truck_status", flat=True)
+                .first()
+            )
+            if truck_status in (
+                Truck.TruckStatus.TRAVELING,
+                Truck.TruckStatus.DELIVERING,
+            ):
+                continue
+        package.delivery_seqnum = None
+        package.save(update_fields=["delivery_seqnum"])
+        cleared += 1
+
+    if cleared:
+        logger.info("cleared %d stale delivery seqnums", cleared)
     return cleared
 
 
