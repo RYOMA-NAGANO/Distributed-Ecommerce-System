@@ -23,7 +23,7 @@
     {% endif %}
 
     <div class="panel" style="background: #f8fbfd;">
-        <div class="eyebrow">Recent Shipments</div>
+        <div class="eyebrow">Your Recent Shipments</div>
         {% if recent_shipments_page_obj.paginator.count %}
         <div class="muted" style="margin-bottom: 12px;">
             Showing {{ recent_shipments_page_obj.start_index }}-{{ recent_shipments_page_obj.end_index }}
@@ -45,7 +45,7 @@
         </div>
         {% endfor %}
         {% else %}
-        <p class="muted" style="margin: 0;">No shipments yet. Place an order first and it will show up here.</p>
+        <p class="muted" style="margin: 0;">You have no shipments yet. Place an order first and it will show up here.</p>
         {% endif %}
 
         {% if recent_shipments_page_obj.paginator.num_pages > 1 %}

@@ -1,7 +1,10 @@
 from django import forms
+from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
-from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
+
+
+User = get_user_model()
 
 
 class CheckoutForm(forms.Form):

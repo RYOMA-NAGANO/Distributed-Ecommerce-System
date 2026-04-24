@@ -42,12 +42,14 @@ class InventoryAdmin(admin.ModelAdmin):
 class OrderAdmin(admin.ModelAdmin):
     list_display = (
         "amazon_order_id",
+        "user",
         "ups_account",
         "requested_destination_x",
         "requested_destination_y",
         "created_at",
     )
-    search_fields = ("amazon_order_id", "ups_account")
+    list_filter = ("user",)
+    search_fields = ("amazon_order_id", "ups_account", "user__username", "user__email")
 
 
 @admin.register(Shipment)
@@ -63,7 +65,13 @@ class ShipmentAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_filter = ("status", "world_id")
-    search_fields = ("shipment_id", "tracking_number", "order__amazon_order_id")
+    search_fields = (
+        "shipment_id",
+        "tracking_number",
+        "order__amazon_order_id",
+        "order__user__username",
+        "order__user__email",
+    )
 
 
 @admin.register(ShipmentItem)

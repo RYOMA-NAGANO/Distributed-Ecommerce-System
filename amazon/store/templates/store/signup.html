@@ -9,6 +9,9 @@
 
     <form method="post">
         {% csrf_token %}
+        {% if request.POST.next or request.GET.next %}
+        <input type="hidden" name="next" value="{{ request.POST.next|default:request.GET.next }}">
+        {% endif %}
         {{ form.non_field_errors }}
         <div>
             <label for="{{ form.email.id_for_label }}">{{ form.email.label }}</label>
@@ -28,6 +31,6 @@
         <button class="btn btn-primary" type="submit">Create account</button>
     </form>
 
-    <p class="auth-switch">Already have an account? <a href="{% url 'login' %}">Log in</a>.</p>
+    <p class="auth-switch">Already have an account? <a href="{% url 'login' %}{% if request.POST.next or request.GET.next %}?next={{ request.POST.next|default:request.GET.next|urlencode }}{% endif %}">Log in</a>.</p>
 </section>
 {% endblock %}

@@ -4,6 +4,7 @@ import hashlib
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import login as auth_login
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView, LogoutView
@@ -44,6 +45,7 @@ logger = logging.getLogger(__name__)
 class AmazonLoginView(LoginView):
     authentication_form = AmazonAuthenticationForm
     template_name = "store/login.html"
+    redirect_authenticated_user = True
 
 
 class AmazonLogoutView(LogoutView):
@@ -53,11 +55,15 @@ class AmazonLogoutView(LogoutView):
 class SignupView(CreateView):
     form_class = UserSignupForm
     template_name = "store/signup.html"
-    success_url = reverse_lazy("login")
 
     def form_valid(self, form):
-        messages.success(self.request, "Account created. Log in with your email and password.")
-        return super().form_valid(form)
+        self.object = form.save()
+        auth_login(self.request, self.object)
+        messages.success(self.request, "Account created.")
+        redirect_to = self.request.POST.get("next") or self.request.GET.get("next")
+        if redirect_to:
+            return redirect(redirect_to)
+        return redirect(reverse_lazy("home"))
 
 
 @login_required
@@ -142,6 +148,7 @@ def product_detail(request, product_id):
         if form.is_valid():
             try:
                 order, _shipment = create_order_from_product(
+                    user=request.user,
                     product_data=product,
                     quantity=form.cleaned_data["quantity"],
                     destination_x=form.cleaned_data["destination_x"],
@@ -153,10 +160,7 @@ def product_detail(request, product_id):
                 logger.exception("Failed to create order for product %s", product_id)
                 form.add_error(None, f"Could not create order: {exc}")
     else:
-        initial = {}
-        if request.user.is_authenticated:
-            initial["ups_account"] = request.user.email
-        form = CheckoutForm(initial=initial)
+        form = CheckoutForm()
 
     context = {
         "product": product,
@@ -170,6 +174,7 @@ def order_detail(request, amazon_order_id):
     order = get_object_or_404(
         Order.objects.prefetch_related("shipments__items__product"),
         amazon_order_id=amazon_order_id,
+        user=request.user,
     )
     detail_context = _build_order_detail_context(
         order,
@@ -187,13 +192,19 @@ def tracking_lookup(request):
     lookup_error = ""
 
     if query:
-        order = Order.objects.filter(amazon_order_id=query).first()
+        order = Order.objects.filter(
+            amazon_order_id=query,
+            user=request.user,
+        ).first()
         if order:
             return redirect("order_detail", amazon_order_id=order.amazon_order_id)
 
         shipment = (
             Shipment.objects.select_related("order")
-            .filter(Q(shipment_id=query) | Q(tracking_number=query))
+            .filter(
+                Q(shipment_id=query) | Q(tracking_number=query),
+                order__user=request.user,
+            )
             .order_by("-created_at")
             .first()
         )
@@ -204,6 +215,7 @@ def tracking_lookup(request):
 
     recent_shipments = (
         Shipment.objects.select_related("order", "warehouse")
+        .filter(order__user=request.user)
         .order_by("-created_at")
     )
     recent_shipments_page_obj = Paginator(recent_shipments, 5).get_page(

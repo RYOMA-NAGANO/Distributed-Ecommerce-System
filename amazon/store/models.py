@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 
 
 class TimestampedModel(models.Model):
@@ -99,6 +100,13 @@ class Inventory(TimestampedModel):
 
 
 class Order(TimestampedModel):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="orders",
+        null=True,
+        blank=True,
+    )
     amazon_order_id = models.CharField(max_length=64, unique=True, db_index=True)
     requested_destination_x = models.IntegerField()
     requested_destination_y = models.IntegerField()

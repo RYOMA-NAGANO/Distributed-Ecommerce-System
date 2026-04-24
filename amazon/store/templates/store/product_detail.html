@@ -42,8 +42,8 @@
         <div class="panel" style="background: #f8fbfd; margin-top: 14px;">
             <h2 style="margin-top: 0;">Log in to buy</h2>
             <p class="muted">Create or use an Amazon account before placing an order.</p>
-            <a class="btn btn-primary" href="{% url 'login' %}?next={{ request.path }}">Log in</a>
-            <a class="btn" href="{% url 'signup' %}">Sign up</a>
+            <a class="btn btn-primary" href="{% url 'login' %}?next={{ request.path|urlencode }}">Log in</a>
+            <a class="btn" href="{% url 'signup' %}?next={{ request.path|urlencode }}">Sign up</a>
         </div>
         {% else %}
         <form method="post">

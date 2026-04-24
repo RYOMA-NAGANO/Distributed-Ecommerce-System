@@ -29,6 +29,7 @@ WORLD_DESCRIPTION_MAX_LEN = 50
 
 def create_order_from_product(
     *,
+    user,
     product_data: dict,
     quantity: int,
     destination_x: int,
@@ -53,6 +54,7 @@ def create_order_from_product(
 
     with transaction.atomic():
         order = Order.objects.create(
+            user=user,
             amazon_order_id=amazon_order_id,
             requested_destination_x=destination_x,
             requested_destination_y=destination_y,
