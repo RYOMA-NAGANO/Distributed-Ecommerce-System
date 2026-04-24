@@ -1,6 +1,8 @@
+import json
+
+from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.contrib import messages
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponseForbidden
@@ -65,7 +67,10 @@ class PackageListView(LoginRequiredMixin, ListView):
 
     def get_queryset(self):
         q = (self.request.GET.get("q") or "").strip()
-        qs = Package.objects.select_related("truck", "user")
+        qs = Package.objects.select_related("truck", "user").prefetch_related(
+            "position_updates",
+            "destination_updates",
+        )
         tab = (self.request.GET.get("tab") or "all").lower()
 
         if q:
@@ -85,13 +90,38 @@ class PackageListView(LoginRequiredMixin, ListView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
+        packages = list(ctx["packages"])
+        self._attach_detail_timelines(packages)
+        ctx["packages"] = packages
         ctx["tab"] = (self.request.GET.get("tab") or "all").lower()
         ctx["search_q"] = (self.request.GET.get("q") or "").strip()
         ctx["show_destination_modal"] = any(
             package.user_id == self.request.user.id and package.status != S.DELIVERED
-            for package in ctx["packages"]
+            for package in packages
         )
         return ctx
+
+    def _attach_detail_timelines(self, packages):
+        for package in packages:
+            events = []
+            for update in package.position_updates.all():
+                events.append(
+                    {
+                        "time": int(update.update_time),
+                        "type": "Position",
+                        "description": f"Position updated to ({update.x}, {update.y})",
+                    }
+                )
+            for update in package.destination_updates.all():
+                events.append(
+                    {
+                        "time": int(update.update_time),
+                        "type": "Destination",
+                        "description": f"Destination updated to ({update.x}, {update.y})",
+                    }
+                )
+            events.sort(key=lambda item: (item["time"], item["type"], item["description"]))
+            package.detail_events_json = json.dumps(events)
 
 
 class PackageDestinationUpdateView(LoginRequiredMixin, View):

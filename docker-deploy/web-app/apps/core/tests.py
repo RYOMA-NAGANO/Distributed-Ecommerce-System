@@ -1,3 +1,5 @@
+import json
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -237,6 +239,23 @@ class PackageOwnershipSearchTests(TestCase):
 
         self.assertContains(response, "Edit destination")
         self.assertContains(response, reverse("package-destination-update", args=[package.shipment_id]))
+
+    def test_non_owner_search_result_can_view_details(self):
+        package = self.create_owned_package(user=self.alice)
+        PositionUpdate.objects.create(shipment=package, x=1, y=2, update_time=20)
+        DestinationUpdate.objects.create(shipment=package, x=3, y=4, update_time=10)
+        self.client.force_login(self.bob)
+
+        response = self.client.get(reverse("my-packages"), {"q": package.shipment_id})
+        package_from_context = response.context["packages"][0]
+
+        self.assertContains(response, "View details")
+        self.assertContains(response, "Destination updated to (3, 4)")
+        self.assertContains(response, "Position updated to (1, 2)")
+        self.assertEqual(
+            [event["time"] for event in json.loads(package_from_context.detail_events_json)],
+            [10, 20],
+        )
 
     def test_auip_create_records_initial_destination(self):
         package = auip_create_shipment(
