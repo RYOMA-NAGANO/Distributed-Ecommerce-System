@@ -16,6 +16,7 @@ from apps.core.auip_services import (
     auip_set_truck_arrived_for_truck,
     record_status_update,
 )
+from apps.core.email_notifications import notify_package_delivered
 from apps.core.models import Package, PositionUpdate, Truck
 from apps.interop.services import amazon_client
 from apps.interop.services.world_response_dedupe import claim_world_response_seq
@@ -399,10 +400,18 @@ class Command(BaseCommand):
             package.save(update_fields=["status", "delivery_seqnum"])
             if package.status != previous_status:
                 record_status_update(package, package.status)
+                transaction.on_commit(
+                    lambda shipment_id=package.shipment_id: self._notify_delivered_email(shipment_id)
+                )
             try:
                 amazon_client.notify_delivered(package, package.dest_x, package.dest_y)
             except Exception as exc:
                 self.stdout.write(self.style.WARNING(f"notify_delivered: {exc}"))
+
+    def _notify_delivered_email(self, shipment_id: str) -> None:
+        package = Package.objects.select_related("user", "truck").filter(shipment_id=shipment_id).first()
+        if package is not None:
+            notify_package_delivered(package)
 
     def _handle_u_truck(self, truck_msg):
         if self._current_world_id is None:

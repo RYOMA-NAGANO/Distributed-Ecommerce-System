@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.core import mail
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -7,9 +8,11 @@ from unittest.mock import patch
 from . import auip_states as S
 from .auip_services import (
     auip_create_shipment,
+    auip_confirm_loaded,
     auip_mark_ready,
     auip_recover_stuck_loading,
     auip_update_destination,
+    update_destination_for_owner,
 )
 from .models import (
     DestinationUpdate,
@@ -23,6 +26,10 @@ from .views import INTEROP_OWNER
 from apps.interop.models import WorldBinding
 
 
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    DEFAULT_FROM_EMAIL="noreply@miniups.test",
+)
 class PackageOwnershipSearchTests(TestCase):
     def setUp(self):
         User = get_user_model()
@@ -448,6 +455,100 @@ class PackageOwnershipSearchTests(TestCase):
             list(PositionUpdate.objects.filter(shipment=package).values_list("x", "y")),
             [(package.warehouse_x, package.warehouse_y)],
         )
+
+    def test_mark_ready_emails_owner_when_package_is_packed(self):
+        package = self.create_owned_package(status=S.CREATED)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            auip_mark_ready(package.shipment_id, package.warehouse_id, package.world_id)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.alice.email])
+        self.assertIn("packed", mail.outbox[0].subject.lower())
+        self.assertIn(package.shipment_id, mail.outbox[0].body)
+
+    def test_mark_ready_emails_owner_when_truck_already_arrived(self):
+        package = self.create_owned_package(status=S.TRUCK_ARRIVED)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            auip_mark_ready(package.shipment_id, package.warehouse_id, package.world_id)
+
+        package.refresh_from_db()
+        self.assertEqual(package.status, S.TRUCK_ARRIVED)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("packed", mail.outbox[0].subject.lower())
+
+    def test_mark_ready_does_not_send_duplicate_packed_email(self):
+        package = self.create_owned_package(status=S.TRUCK_ARRIVED)
+        StatusUpdate.objects.create(shipment=package, status=S.PACKED, update_time=1)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            auip_mark_ready(package.shipment_id, package.warehouse_id, package.world_id)
+
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_confirm_loaded_emails_owner_when_package_is_loaded(self):
+        truck = Truck.objects.create(
+            truck_id=16,
+            truck_status=Truck.TruckStatus.LOADING,
+        )
+        package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-EMAIL-LOADED",
+            status=S.LOADING,
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            auip_confirm_loaded(
+                package.shipment_id,
+                truck.truck_id,
+                package.warehouse_id,
+                package.world_id,
+            )
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.alice.email])
+        self.assertIn("loaded", mail.outbox[0].subject.lower())
+
+    def test_destination_update_emails_owner(self):
+        package = self.create_owned_package(status=S.PACKED)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            update_destination_for_owner(package.shipment_id, self.alice, 91, 92)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.alice.email])
+        self.assertIn("destination", mail.outbox[0].subject.lower())
+        self.assertIn("(91, 92)", mail.outbox[0].body)
+
+    def test_delivery_made_emails_owner_when_package_is_delivered(self):
+        from apps.interop.management.commands.run_ups_daemon import Command
+
+        truck = Truck.objects.create(
+            truck_id=17,
+            truck_status=Truck.TruckStatus.DELIVERING,
+        )
+        package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-EMAIL-DELIVERED",
+            status=S.OUT_FOR_DELIVERY,
+            world_package_id=1006,
+        )
+        command = Command()
+        command._current_world_id = 1
+        delivered = SimpleNamespace(
+            packageid=package.world_package_id,
+            truckid=truck.truck_id,
+            seqnum=456,
+        )
+
+        with patch("apps.interop.management.commands.run_ups_daemon.amazon_client.notify_delivered"):
+            with self.captureOnCommitCallbacks(execute=True):
+                command._handle_u_delivery_made(delivered)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.alice.email])
+        self.assertIn("delivered", mail.outbox[0].subject.lower())
 
     def test_world_completion_records_position_for_all_packages_on_truck(self):
         from apps.interop.management.commands.run_ups_daemon import Command

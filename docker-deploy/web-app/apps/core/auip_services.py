@@ -8,6 +8,11 @@ from django.db.models import Case, IntegerField, Value, When
 from apps.interop.services import amazon_client
 
 from . import auip_states as S
+from .email_notifications import (
+    notify_destination_updated,
+    notify_package_loaded,
+    notify_package_packed,
+)
 from .models import DestinationUpdate, Package, PositionUpdate, StatusUpdate, Truck
 from .services import (
     ShipmentNotFoundError,
@@ -85,6 +90,15 @@ def record_status_update(package: Package, status: str, *, update_time: int | No
         status=str(status),
         update_time=timestamp,
     )
+
+
+def _notify_on_commit(notification_func, shipment_id: str) -> None:
+    def send_after_commit():
+        package = Package.objects.select_related("user", "truck").filter(shipment_id=shipment_id).first()
+        if package is not None:
+            notification_func(package)
+
+    transaction.on_commit(send_after_commit)
 
 
 def _ensure_unique_world_package_id(*, shipment_id: str, world_id: int, world_package_id: int) -> None:
@@ -325,13 +339,20 @@ def auip_mark_ready(shipment_id: str, warehouse_id: int, world_id: int) -> Packa
     ).exists()
     # If truck is already at warehouse, keep that stronger state.
     previous_status = p.status
+    should_notify_packed = False
     if p.status == S.TRUCK_ARRIVED:
+        should_notify_packed = not StatusUpdate.objects.filter(shipment=p, status=S.PACKED).exists()
         p.status = S.TRUCK_ARRIVED
     else:
         p.status = S.PACKED
     p.save(update_fields=["status"])
     if p.status != previous_status:
         record_status_update(p, p.status)
+        if p.status == S.PACKED:
+            _notify_on_commit(notify_package_packed, p.shipment_id)
+    elif should_notify_packed:
+        record_status_update(p, S.PACKED)
+        _notify_on_commit(notify_package_packed, p.shipment_id)
     if should_record_warehouse_position:
         _record_position_update(p, p.warehouse_x, p.warehouse_y)
     return p
@@ -585,6 +606,7 @@ def auip_confirm_loaded(shipment_id: str, truck_id: int, warehouse_id: int, worl
     p.save(update_fields=["status"])
     if p.status != previous_status:
         record_status_update(p, p.status)
+        _notify_on_commit(notify_package_loaded, p.shipment_id)
     return p
 
 
@@ -611,12 +633,15 @@ def auip_update_destination(shipment_id: str, x: int, y: int, reason: str) -> Pa
     if p.status in S.DESTINATION_BLOCKED:
         raise ShipmentStateError(f"destination update not allowed in state {p.status}")
     previous_status = p.status
+    destination_changed = (int(p.dest_x), int(p.dest_y)) != (int(x), int(y))
     p.dest_x = int(x)
     p.dest_y = int(y)
     p.status = S.UPDATED
     p.save(update_fields=["dest_x", "dest_y", "status"])
     if p.status != previous_status:
         record_status_update(p, p.status)
+    if destination_changed:
+        _notify_on_commit(notify_destination_updated, p.shipment_id)
     _record_destination_update(p, p.dest_x, p.dest_y)
     return p
 
@@ -632,6 +657,7 @@ def update_destination_for_owner(shipment_id: str, user, x: int, y: int) -> Pack
         raise ShipmentStateError("Delivered packages cannot be redirected.")
 
     update_fields = ["dest_x", "dest_y"]
+    destination_changed = (int(p.dest_x), int(p.dest_y)) != (int(x), int(y))
     p.dest_x = int(x)
     p.dest_y = int(y)
 
@@ -647,6 +673,8 @@ def update_destination_for_owner(shipment_id: str, user, x: int, y: int) -> Pack
 
     p.save(update_fields=update_fields)
     _record_destination_update(p, p.dest_x, p.dest_y)
+    if destination_changed:
+        _notify_on_commit(notify_destination_updated, p.shipment_id)
     return p
 
 
