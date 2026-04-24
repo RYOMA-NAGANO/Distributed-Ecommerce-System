@@ -1,4 +1,5 @@
 import logging
+import time
 
 from django.db import transaction
 from django.db.models import F
@@ -12,6 +13,16 @@ WORLD_DESCRIPTION_MAX_LEN = 50
 
 def _world_description(value: str) -> str:
     return (value or "")[:WORLD_DESCRIPTION_MAX_LEN]
+
+
+def _clear_pending_for_shipment(pending: dict, shipment_id: str) -> None:
+    stale_seqnums = [
+        seqnum
+        for seqnum, entry in pending.items()
+        if entry["shipment_id"] == shipment_id
+    ]
+    for seqnum in stale_seqnums:
+        pending.pop(seqnum, None)
 
 
 def issue_topack(shipment, world_client, ack_mgr, pending_packs: dict) -> None:
@@ -33,8 +44,13 @@ def issue_topack(shipment, world_client, ack_mgr, pending_packs: dict) -> None:
         thing.count = item.quantity
 
     world_client.send(cmd)
-    ack_mgr.register(seqnum, cmd)
-    pending_packs[seqnum] = shipment.shipment_id
+    # Packing can also sit in World's queue for a while under concurrent order
+    # bursts, so avoid fast blind retries that can recreate the same package id.
+    ack_mgr.register(seqnum, cmd, retry_enabled=False)
+    pending_packs[seqnum] = {
+        "shipment_id": shipment.shipment_id,
+        "issued_at": time.monotonic(),
+    }
 
     logger.info("issued topack for shipment %s seqnum=%d", shipment.shipment_id, seqnum)
 
@@ -46,7 +62,7 @@ def handle_ready(packed_msg, pending_packs: dict) -> str | None:
     Returns shipment_id if it should now wait for truck or load immediately.
     """
     shipment_id = str(packed_msg.shipid)
-    pending_packs.pop(packed_msg.seqnum, None)
+    _clear_pending_for_shipment(pending_packs, shipment_id)
 
     try:
         with transaction.atomic():
@@ -112,8 +128,14 @@ def try_issue_load(shipment_id: str, world_client, ack_mgr, pending_loads: dict)
     load.seqnum = seqnum
 
     world_client.send(cmd)
-    ack_mgr.register(seqnum, cmd)
-    pending_loads[seqnum] = shipment_id
+    # World can take a long time to process loads when orders are queued.
+    # Avoid quick blind retries here because duplicate load commands can
+    # cause duplicate package inserts in World under concurrent ordering.
+    ack_mgr.register(seqnum, cmd, retry_enabled=False)
+    pending_loads[seqnum] = {
+        "shipment_id": shipment_id,
+        "issued_at": time.monotonic(),
+    }
 
     logger.info(
         "issued load for shipment %s truck=%d seqnum=%d",
@@ -129,7 +151,7 @@ def handle_loaded(loaded_msg, pending_loads: dict) -> str | None:
     Returns shipment_id for the caller to notify UPS.
     """
     shipment_id = str(loaded_msg.shipid)
-    pending_loads.pop(loaded_msg.seqnum, None)
+    _clear_pending_for_shipment(pending_loads, shipment_id)
 
     with transaction.atomic():
         try:

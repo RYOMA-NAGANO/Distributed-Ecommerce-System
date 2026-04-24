@@ -10,6 +10,8 @@ import shipment_worker
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 3  # seconds
+PACK_PENDING_TIMEOUT = 300  # seconds before a pack attempt is treated as stalled
+LOAD_PENDING_TIMEOUT = 300  # seconds before a load attempt is treated as stalled
 
 
 class Scheduler:
@@ -32,8 +34,8 @@ class Scheduler:
         self._world_id = world_id
 
         self._pending_buys = {}    # seqnum -> buy metadata (shipment_id, warehouse_id, items)
-        self._pending_packs = {}   # seqnum -> shipment_id
-        self._pending_loads = {}   # seqnum -> shipment_id
+        self._pending_packs = {}   # seqnum -> {shipment_id, issued_at}
+        self._pending_loads = {}   # seqnum -> {shipment_id, issued_at}
         self._processed_world_seqnums = set()
 
         self._running = False
@@ -125,7 +127,10 @@ class Scheduler:
             self._pending_buys.pop(err.originseqnum, None)
             self._pending_packs.pop(err.originseqnum, None)
 
-            failed_load_shipment_id = self._pending_loads.pop(err.originseqnum, None)
+            failed_load = self._pending_loads.pop(err.originseqnum, None)
+            failed_load_shipment_id = (
+                failed_load["shipment_id"] if failed_load is not None else None
+            )
             if failed_load_shipment_id:
                 self._handle_failed_load(failed_load_shipment_id, err.err)
 
@@ -147,7 +152,9 @@ class Scheduler:
                 inventory_worker.process_created_shipments(
                     self._world, self._ack, self._pending_buys, self._world_id
                 )
+                self._expire_stale_pending_packs()
                 self._retry_packing()
+                self._expire_stale_pending_loads()
                 self._retry_loading()
             except Exception as exc:
                 logger.error("Scheduler poll error: %s", exc)
@@ -155,7 +162,10 @@ class Scheduler:
 
     def _retry_packing(self):
         """Re-issue topack for PACKING shipments not yet in pending_packs."""
-        in_flight = set(self._pending_packs.values())
+        in_flight = {
+            pending["shipment_id"]
+            for pending in self._pending_packs.values()
+        }
         shipments = Shipment.objects.filter(status=ShipmentStatus.PACKING)
         if self._world_id is not None:
             shipments = shipments.filter(world_id=self._world_id)
@@ -164,6 +174,27 @@ class Scheduler:
                 shipment_worker.issue_topack(
                     shipment, self._world, self._ack, self._pending_packs
                 )
+
+    def _expire_stale_pending_packs(self):
+        now = time.monotonic()
+        stale_seqnums = [
+            seqnum
+            for seqnum, pending in self._pending_packs.items()
+            if now - pending["issued_at"] >= PACK_PENDING_TIMEOUT
+        ]
+
+        for seqnum in stale_seqnums:
+            pending = self._pending_packs.pop(seqnum, None)
+            if pending is None:
+                continue
+
+            shipment_id = pending["shipment_id"]
+            self._ack.ack(seqnum)
+            logger.warning(
+                "pack seqnum %d for shipment %s timed out waiting for World; allowing retry",
+                seqnum,
+                shipment_id,
+            )
 
     def _advance_to_packing(self, shipment_id: str):
         """Re-check inventory and issue topack if stock is now sufficient."""
@@ -184,7 +215,10 @@ class Scheduler:
             )
 
     def _retry_loading(self):
-        in_flight = set(self._pending_loads.values())
+        in_flight = {
+            pending["shipment_id"]
+            for pending in self._pending_loads.values()
+        }
         candidates = Shipment.objects.filter(
             status__in=[
                 ShipmentStatus.PACKED,
@@ -204,6 +238,31 @@ class Scheduler:
                 self._world,
                 self._ack,
                 self._pending_loads,
+            )
+
+    def _expire_stale_pending_loads(self):
+        now = time.monotonic()
+        stale_seqnums = [
+            seqnum
+            for seqnum, pending in self._pending_loads.items()
+            if now - pending["issued_at"] >= LOAD_PENDING_TIMEOUT
+        ]
+
+        for seqnum in stale_seqnums:
+            pending = self._pending_loads.pop(seqnum, None)
+            if pending is None:
+                continue
+
+            shipment_id = pending["shipment_id"]
+            self._ack.ack(seqnum)
+            logger.warning(
+                "load seqnum %d for shipment %s timed out waiting for World; resetting for retry",
+                seqnum,
+                shipment_id,
+            )
+            self._handle_failed_load(
+                shipment_id,
+                "load command timed out waiting for World response",
             )
 
     def _already_processed(self, seqnum: int) -> bool:

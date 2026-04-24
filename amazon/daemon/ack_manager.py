@@ -44,12 +44,23 @@ class AckManager:
             self._counter += 1
             return self._counter
 
-    def register(self, seqnum: int, commands) -> None:
+    def register(
+        self,
+        seqnum: int,
+        commands,
+        *,
+        retry_enabled: bool = True,
+        retry_interval: int = RETRY_INTERVAL,
+        max_retries: int = MAX_RETRIES,
+    ) -> None:
         with self._lock:
             self._pending[seqnum] = {
                 "cmd": commands,
                 "retries": 0,
                 "last_sent": time.monotonic(),
+                "retry_enabled": retry_enabled,
+                "retry_interval": retry_interval,
+                "max_retries": max_retries,
             }
 
     def ack(self, seqnum: int) -> None:
@@ -69,10 +80,11 @@ class AckManager:
                 to_retry = [
                     (seq, info)
                     for seq, info in self._pending.items()
-                    if now - info["last_sent"] >= RETRY_INTERVAL
+                    if info.get("retry_enabled", True)
+                    and now - info["last_sent"] >= info.get("retry_interval", RETRY_INTERVAL)
                 ]
             for seq, info in to_retry:
-                if info["retries"] >= MAX_RETRIES:
+                if info["retries"] >= info.get("max_retries", MAX_RETRIES):
                     logger.error("seqnum %d exceeded max retries, dropping", seq)
                     with self._lock:
                         self._pending.pop(seq, None)
