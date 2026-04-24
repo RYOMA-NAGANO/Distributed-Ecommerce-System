@@ -7,6 +7,7 @@ from django.db import transaction
 
 from apps.core import auip_states as S
 from apps.core.auip_services import (
+    auip_recover_stale_delivery_requests,
     auip_recover_stale_pickup_requests,
     auip_recover_stuck_loading,
     auip_requeue_interrupted_deliveries_for_truck,
@@ -117,6 +118,7 @@ class Command(BaseCommand):
 
         def maybe_enqueue_outbound():
             auip_recover_stale_pickup_requests(world_id=self._current_world_id)
+            auip_recover_stale_delivery_requests(world_id=self._current_world_id)
             auip_reconcile_truck_arrivals(world_id=self._current_world_id)
             auip_recover_stuck_loading(world_id=self._current_world_id)
             auip_retry_pending_load_requests(world_id=self._current_world_id)

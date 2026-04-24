@@ -62,12 +62,7 @@ def handle_load_request(payload: dict) -> CallbackResult:
         raise CallbackConflict("warehouse_id does not match shipment")
     if shipment.truck_id is not None and shipment.truck_id != truck_id:
         raise CallbackConflict("truck_id does not match shipment")
-    if shipment.status in (
-        ShipmentStatus.LOADED,
-        ShipmentStatus.OUT_FOR_DELIVERY,
-        ShipmentStatus.DELIVERED,
-        ShipmentStatus.CANCELED,
-    ):
+    if shipment.status == ShipmentStatus.CANCELED:
         raise CallbackConflict("shipment can no longer accept load requests")
 
     with transaction.atomic():
@@ -81,6 +76,8 @@ def handle_load_request(payload: dict) -> CallbackResult:
             ShipmentStatus.TRUCK_ARRIVED,
             ShipmentStatus.LOADING,
             ShipmentStatus.LOADED,
+            ShipmentStatus.OUT_FOR_DELIVERY,
+            ShipmentStatus.DELIVERED,
         ):
             raise CallbackConflict("shipment is not packed or truck has not arrived")
 
@@ -90,14 +87,9 @@ def handle_load_request(payload: dict) -> CallbackResult:
         locked.save(update_fields=["truck_id", "status", "updated_at"])
         _record_event(locked, "load_request", payload)
 
-        if locked.status == ShipmentStatus.LOADED:
-            status = ShipmentStatus.LOADED
-        else:
-            status = ShipmentStatus.LOADING
-
         return CallbackResult(
             shipment_id=locked.shipment_id,
-            status=status,
+            status=locked.status,
             world_id=locked.world_id,
         )
 

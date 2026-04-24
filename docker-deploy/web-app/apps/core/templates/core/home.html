@@ -3,16 +3,63 @@
 {% block title %}MiniUPS · Home{% endblock %}
 
 {% block content %}
+<style>
+  .ups-card.ups-home-track-card {
+    margin-bottom: 1rem;
+    background: linear-gradient(180deg, #f3f3f3 0%, #efefef 100%);
+    border: 1px solid #d6d6d6;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.07), 0 1px 0 rgba(255, 255, 255, 0.75) inset;
+  }
+  .ups-home-track-title {
+    margin: 0 0 1rem;
+    color: #161616;
+    font-size: clamp(1.85rem, 3.5vw, 2.6rem);
+    font-weight: 700;
+    line-height: 1.1;
+  }
+  .ups-home-track-form {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.95rem;
+  }
+  .ups-home-track-form input[type="text"] {
+    width: 100% !important;
+    border: 2px solid #818181 !important;
+    border-radius: 12px !important;
+    background: #f7f7f7 !important;
+    padding: 1rem 1.15rem !important;
+    font-size: 1.1rem !important;
+    color: #1f1f1f !important;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  }
+  .ups-home-track-btn {
+    border: 1px solid #e8b400 !important;
+    border-radius: 999px !important;
+    background: #ffc800 !important;
+    color: #111 !important;
+    font-weight: 700 !important;
+    font-size: 1.95rem !important;
+    line-height: 1.05;
+    padding: 1.05rem 1.3rem !important;
+    margin-top: 1.05rem;
+    width: 100% !important;
+    cursor: pointer;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    box-shadow: 0 2px 8px rgba(161, 117, 0, 0.2);
+  }
+  .ups-home-track-btn-arrow {
+    font-size: 1.35em;
+    line-height: 0.8;
+  }
+</style>
 <section class="ups-hero">
   <div>
-    <h1>Ship, track, and lab integration</h1>
-    <p>
-      MiniUPS uses Postgres and the World simulator. After you sign up, <strong>log in with your email</strong> (no password complexity rules).
-      Use <strong>My shipments</strong> to track status. Shipments are created by Amazon over the AUIP API; the UPS daemon drives trucks in the World simulator.
-    </p>
+    <h1>Welcome to MiniUPS!</h1>
     <div class="ups-actions">
       {% if user.is_authenticated %}
-        <a class="ups-btn ups-btn-primary" href="{% url 'my-packages' %}">My shipments</a>
       {% else %}
         <a class="ups-btn ups-btn-primary" href="{% url 'signup' %}">Create account</a>
         <a class="ups-btn ups-btn-primary" href="{% url 'login' %}" style="background: var(--ups-white); color: var(--ups-brown) !important; border: 2px solid var(--ups-gold);">Log in</a>
@@ -24,12 +71,32 @@
   </div>
 </section>
 
+<div class="ups-card ups-home-track-card">
+  <h2 class="ups-home-track-title">Track a Package</h2>
+  <form action="{% url 'my-packages' %}" method="get" class="ups-home-track-form">
+    <input
+      type="text"
+      name="q"
+      placeholder="Tracking Number or UPS Delivery Notice"
+      aria-label="Tracking Number or UPS Delivery Notice"
+      autocomplete="off"
+      required
+    />
+    <button type="submit" class="ups-home-track-btn">
+      <span>Track</span>
+      <span aria-hidden="true" class="ups-home-track-btn-arrow">›</span>
+    </button>
+  </form>
+</div>
+
 <div class="ups-card">
   <h2 style="margin-top:0;color:var(--ups-brown);">What you can do</h2>
   <ul class="ups-muted">
     <li><strong>Sign up / Log in</strong>: email + password (demo accounts).</li>
-    <li><strong>AUIP</strong>: Amazon calls UPS (<code>POST /shipments</code>, pickup, ready, loaded, etc.); UPS callbacks notify Amazon at each step.</li>
     <li><strong>My shipments</strong>: track status, filter, and search.</li>
+    <li><strong>Live tracking</strong>: shipment timeline shows warehouse, loading, out-for-delivery, and delivered updates.</li>
+    <li><strong>Destination update</strong>: signed-in users can change destination coordinates before delivery is complete.</li>
+    <li><strong>Multi-user visibility</strong>: each account sees only its own shipments while still supporting shared system simulation.</li>
   </ul>
 </div>
 {% endblock %}

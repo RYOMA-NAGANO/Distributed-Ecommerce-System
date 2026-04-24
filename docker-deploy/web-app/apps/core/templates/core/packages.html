@@ -7,18 +7,12 @@
   <div class="ups-track-header">
     <h1 style="margin:0;font-size:1.15rem;">My shipments</h1>
     <nav class="ups-tabs">
-      <a class="ups-tab {% if tab == 'all' %}ups-tab-active{% endif %}" href="{% url 'my-packages' %}?tab=all{% if search_q %}&q={{ search_q|urlencode }}{% endif %}">All</a>
-      <a class="ups-tab {% if tab == 'active' %}ups-tab-active{% endif %}" href="{% url 'my-packages' %}?tab=active{% if search_q %}&q={{ search_q|urlencode }}{% endif %}">In progress</a>
-      <a class="ups-tab {% if tab == 'delivered' %}ups-tab-active{% endif %}" href="{% url 'my-packages' %}?tab=delivered{% if search_q %}&q={{ search_q|urlencode }}{% endif %}">Delivered</a>
+      <a class="ups-tab {% if tab == 'all' %}ups-tab-active{% endif %}" href="{% url 'my-packages' %}?tab=all">All</a>
+      <a class="ups-tab {% if tab == 'active' %}ups-tab-active{% endif %}" href="{% url 'my-packages' %}?tab=active">In progress</a>
+      <a class="ups-tab {% if tab == 'delivered' %}ups-tab-active{% endif %}" href="{% url 'my-packages' %}?tab=delivered">Delivered</a>
     </nav>
   </div>
   <div style="padding:1rem 1.25rem 1.25rem;">
-    <form class="ups-search" method="get" action="{% url 'my-packages' %}">
-      <input type="hidden" name="tab" value="{{ tab }}">
-      <input type="text" name="q" value="{{ search_q }}" placeholder="Search by shipment id or order id" aria-label="Shipment or order id">
-      <button type="submit" class="ups-btn ups-btn-primary">Search</button>
-    </form>
-
     {% if messages %}
       {% for message in messages %}
         <div class="ups-alert {% if message.tags == 'success' %}ups-alert-success{% else %}ups-alert-error{% endif %}">{{ message }}</div>
@@ -175,9 +169,9 @@
         </div>
       {% endif %}
     {% elif search_q %}
-      <p class="ups-muted">No shipments matched your search.</p>
+      <p class="ups-muted">No shipments matched your order id search.</p>
     {% else %}
-      <p class="ups-muted">Search for a shipment id or order id. Shipments you claim are shown here.</p>
+      <p class="ups-muted">Use the Track a Package form on the home page to search by order id. Shipments you claim are shown here.</p>
     {% endif %}
   </div>
 </div>

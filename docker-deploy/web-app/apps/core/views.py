@@ -129,16 +129,7 @@ class PackageListView(LoginRequiredMixin, ListView):
         tab = (self.request.GET.get("tab") or "all").lower()
 
         if q:
-            match_filter = Q(shipment_id__icontains=q) | Q(amazon_order_id__icontains=q)
-            try:
-                numeric_q = int(q)
-            except (TypeError, ValueError):
-                numeric_q = None
-
-            if numeric_q is not None:
-                match_filter |= Q(world_package_id=numeric_q)
-                match_filter |= Q(items__contains=[{"product_id": numeric_q}])
-
+            match_filter = Q(amazon_order_id__icontains=q)
             matched_qs = base_qs.filter(match_filter)
             claim_search_results_for_user(matched_qs, self.request.user)
             qs = matched_qs.filter(user=self.request.user)

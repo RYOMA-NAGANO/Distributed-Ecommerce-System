@@ -11,11 +11,11 @@ def _base() -> str:
     return getattr(settings, "AMAZON_BASE_URL", "") or ""
 
 
-def _post(path: str, payload: dict) -> None:
+def _post(path: str, payload: dict) -> dict:
     base = _base().rstrip("/")
     if not base:
         logger.info("AMAZON_BASE_URL not set; skip callback %s", path)
-        return
+        return {}
     url = f"{base}{path}"
     headers = {
         "Content-Type": "application/json",
@@ -26,6 +26,9 @@ def _post(path: str, payload: dict) -> None:
         headers["Authorization"] = f"Bearer {secret}"
     r = requests.post(url, json=payload, headers=headers, timeout=15)
     r.raise_for_status()
+    if not r.content:
+        return {}
+    return r.json()
 
 
 def notify_truck_arrived(package, x: int, y: int) -> None:
@@ -41,8 +44,8 @@ def notify_truck_arrived(package, x: int, y: int) -> None:
     )
 
 
-def notify_load_request(package) -> None:
-    _post(
+def notify_load_request(package) -> dict:
+    return _post(
         "/api/load-request",
         {
             "shipment_id": package.shipment_id,

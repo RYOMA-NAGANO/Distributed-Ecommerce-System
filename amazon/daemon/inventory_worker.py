@@ -97,7 +97,6 @@ def _issue_buy(shipment, warehouse, shortfall, world_client, ack_mgr, pending_bu
         thing.description = _world_description(description)
         thing.count = count
 
-    world_client.send(cmd)
     ack_mgr.register(seqnum, cmd)
     pending_buys[seqnum] = {
         "shipment_id": shipment.shipment_id,
@@ -111,6 +110,7 @@ def _issue_buy(shipment, warehouse, shortfall, world_client, ack_mgr, pending_bu
             for product, description, count in shortfall
         ],
     }
+    world_client.send(cmd)
 
     logger.info(
         "issued buy for shipment %s, seqnum=%d, shortfall=%s",

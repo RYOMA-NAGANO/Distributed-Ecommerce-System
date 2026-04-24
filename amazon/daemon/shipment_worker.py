@@ -43,14 +43,14 @@ def issue_topack(shipment, world_client, ack_mgr, pending_packs: dict) -> None:
         thing.description = _world_description(item.description_snapshot)
         thing.count = item.quantity
 
-    world_client.send(cmd)
-    # Packing can also sit in World's queue for a while under concurrent order
-    # bursts, so avoid fast blind retries that can recreate the same package id.
-    ack_mgr.register(seqnum, cmd, retry_enabled=False)
+    # Keep retry enabled so dropped commands under World flakiness are resent
+    # with the same seqnum until acknowledged.
+    ack_mgr.register(seqnum, cmd)
     pending_packs[seqnum] = {
         "shipment_id": shipment.shipment_id,
         "issued_at": time.monotonic(),
     }
+    world_client.send(cmd)
 
     logger.info("issued topack for shipment %s seqnum=%d", shipment.shipment_id, seqnum)
 
@@ -137,15 +137,14 @@ def try_issue_load(shipment_id: str, world_client, ack_mgr, pending_loads: dict)
     load.shipid = int(shipment_id)
     load.seqnum = seqnum
 
-    world_client.send(cmd)
-    # World can take a long time to process loads when orders are queued.
-    # Avoid quick blind retries here because duplicate load commands can
-    # cause duplicate package inserts in World under concurrent ordering.
-    ack_mgr.register(seqnum, cmd, retry_enabled=False)
+    # Keep retry enabled so dropped commands under World flakiness are resent
+    # with the same seqnum until acknowledged.
+    ack_mgr.register(seqnum, cmd)
     pending_loads[seqnum] = {
         "shipment_id": shipment_id,
         "issued_at": time.monotonic(),
     }
+    world_client.send(cmd)
 
     logger.info(
         "issued load for shipment %s truck=%d seqnum=%d",

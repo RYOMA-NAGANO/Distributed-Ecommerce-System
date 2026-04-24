@@ -14,22 +14,24 @@
           <span class="ups-logo-mark">UPS</span>
           <span>MiniUPS</span>
         </a>
-        <nav class="ups-nav">
-          <a href="{% url 'home' %}">Home</a>
-          {% if user.is_authenticated %}
-            <a href="{% url 'my-packages' %}">My shipments</a>
-            <a href="{% url 'account-settings' %}">Settings</a>
-          {% endif %}
-          {% if user.is_authenticated %}
-            <form method="post" action="{% url 'logout' %}" class="ups-nav-logout">
-              {% csrf_token %}
-              <button type="submit" class="ups-btn ups-btn-primary">Log out</button>
-            </form>
-          {% else %}
-            <a class="ups-btn ups-btn-ghost" href="{% url 'login' %}">Log in</a>
-            <a class="ups-btn ups-btn-primary" href="{% url 'signup' %}">Sign up</a>
-          {% endif %}
-        </nav>
+        <div class="ups-header-tools">
+          <nav class="ups-nav">
+            <a href="{% url 'home' %}">Home</a>
+            {% if user.is_authenticated %}
+              <a href="{% url 'my-packages' %}">My shipments</a>
+              <a href="{% url 'account-settings' %}">Settings</a>
+            {% endif %}
+            {% if user.is_authenticated %}
+              <form method="post" action="{% url 'logout' %}" class="ups-nav-logout">
+                {% csrf_token %}
+                <button type="submit" class="ups-btn ups-btn-primary">Log out</button>
+              </form>
+            {% else %}
+              <a class="ups-btn ups-btn-ghost" href="{% url 'login' %}">Log in</a>
+              <a class="ups-btn ups-btn-primary" href="{% url 'signup' %}">Sign up</a>
+            {% endif %}
+          </nav>
+        </div>
       </div>
     </header>
     <main class="ups-main">
