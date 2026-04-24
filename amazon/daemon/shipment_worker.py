@@ -177,7 +177,11 @@ def handle_loaded(loaded_msg, pending_loads: dict) -> str | None:
         if shipment.status == ShipmentStatus.LOADED:
             logger.info("handle_loaded: shipment %s already LOADED", shipment_id)
             return None
-        if shipment.status != ShipmentStatus.LOADING:
+        if shipment.status not in (
+            ShipmentStatus.LOADING,
+            ShipmentStatus.TRUCK_ARRIVED,
+            ShipmentStatus.PACKED,
+        ):
             logger.warning(
                 "handle_loaded: shipment %s in unexpected status %s",
                 shipment_id,

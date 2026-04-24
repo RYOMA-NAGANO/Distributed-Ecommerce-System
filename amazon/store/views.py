@@ -3,16 +3,28 @@ import json
 import hashlib
 
 from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.views import LoginView, LogoutView
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.http import JsonResponse
 from django.http import Http404
+from django.urls import reverse_lazy
 from django.utils import timezone
+from django.views.generic.edit import CreateView
 from django.views.decorators.csrf import csrf_exempt
 
-from .forms import CheckoutForm
+from .forms import (
+    AmazonAuthenticationForm,
+    AmazonPasswordChangeForm,
+    CheckoutForm,
+    UserProfileForm,
+    UserSignupForm,
+)
 from .models import HttpDirection, HttpIdempotencyRecord, Order, Shipment
 from .services.callback_service import (
     CallbackBadRequest,
@@ -27,6 +39,56 @@ from .services.order_service import create_order_from_product
 from .services.status import build_timeline_steps
 
 logger = logging.getLogger(__name__)
+
+
+class AmazonLoginView(LoginView):
+    authentication_form = AmazonAuthenticationForm
+    template_name = "store/login.html"
+
+
+class AmazonLogoutView(LogoutView):
+    next_page = reverse_lazy("home")
+
+
+class SignupView(CreateView):
+    form_class = UserSignupForm
+    template_name = "store/signup.html"
+    success_url = reverse_lazy("login")
+
+    def form_valid(self, form):
+        messages.success(self.request, "Account created. Log in with your email and password.")
+        return super().form_valid(form)
+
+
+@login_required
+def account_settings(request):
+    profile_form = UserProfileForm(instance=request.user, prefix="profile")
+    password_form = AmazonPasswordChangeForm(request.user, prefix="password")
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "profile":
+            profile_form = UserProfileForm(request.POST, instance=request.user, prefix="profile")
+            if profile_form.is_valid():
+                profile_form.save()
+                messages.success(request, "Profile updated.")
+                return redirect("account_settings")
+        elif action == "password":
+            password_form = AmazonPasswordChangeForm(request.user, request.POST, prefix="password")
+            if password_form.is_valid():
+                user = password_form.save()
+                update_session_auth_hash(request, user)
+                messages.success(request, "Password updated.")
+                return redirect("account_settings")
+
+    return render(
+        request,
+        "store/settings.html",
+        {
+            "profile_form": profile_form,
+            "password_form": password_form,
+        },
+    )
 
 
 def _callback_secret(request) -> str:
@@ -44,6 +106,7 @@ def home(request):
     return render(request, "store/home.html", context)
 
 
+@login_required
 def product_list(request):
     search_query = request.GET.get("q", "").strip()
     filtered_products = get_catalog_products()
@@ -68,6 +131,7 @@ def product_list(request):
     return render(request, "store/product_list.html", context)
 
 
+@login_required
 def product_detail(request, product_id):
     product = get_catalog_product(product_id)
     if product is None:
@@ -89,7 +153,7 @@ def product_detail(request, product_id):
                 logger.exception("Failed to create order for product %s", product_id)
                 form.add_error(None, f"Could not create order: {exc}")
     else:
-        form = CheckoutForm()
+        form = CheckoutForm(initial={"ups_account": request.user.email})
 
     context = {
         "product": product,

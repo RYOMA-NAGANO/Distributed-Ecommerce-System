@@ -1,0 +1,28 @@
+{% extends "store/base.html" %}
+
+{% block title %}Account Settings | Mini Amazon{% endblock %}
+
+{% block content %}
+<div class="settings-layout">
+    <section class="panel">
+        <h1>Profile</h1>
+        <p class="muted">{{ request.user.email }}</p>
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="profile">
+            {{ profile_form.as_p }}
+            <button class="btn btn-primary" type="submit">Save profile</button>
+        </form>
+    </section>
+
+    <section class="panel">
+        <h1>Password</h1>
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="password">
+            {{ password_form.as_p }}
+            <button class="btn btn-primary" type="submit">Change password</button>
+        </form>
+    </section>
+</div>
+{% endblock %}

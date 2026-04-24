@@ -4,6 +4,10 @@ from . import views
 
 urlpatterns = [
     path("", views.home, name="home"),
+    path("accounts/login/", views.AmazonLoginView.as_view(), name="login"),
+    path("accounts/logout/", views.AmazonLogoutView.as_view(), name="logout"),
+    path("accounts/signup/", views.SignupView.as_view(), name="signup"),
+    path("accounts/settings/", views.account_settings, name="account_settings"),
     path("products/", views.product_list, name="product_list"),
     path("products/<str:product_id>/", views.product_detail, name="product_detail"),
     path("orders/<str:amazon_order_id>/", views.order_detail, name="order_detail"),

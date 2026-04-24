@@ -60,17 +60,11 @@ def handle_load_request(payload: dict) -> CallbackResult:
 
     if shipment.warehouse.warehouse_id != warehouse_id:
         raise CallbackConflict("warehouse_id does not match shipment")
-    if shipment.truck_id is not None and shipment.truck_id != truck_id:
-        raise CallbackConflict("truck_id does not match shipment")
     if shipment.status == ShipmentStatus.CANCELED:
         raise CallbackConflict("shipment can no longer accept load requests")
 
     with transaction.atomic():
         locked = Shipment.objects.select_for_update().get(pk=shipment.pk)
-        if locked.truck_id is None:
-            raise CallbackConflict("truck has not arrived for this shipment")
-        if locked.truck_id != truck_id:
-            raise CallbackConflict("truck_id does not match shipment")
         if locked.status not in (
             ShipmentStatus.PACKED,
             ShipmentStatus.TRUCK_ARRIVED,
@@ -81,6 +75,14 @@ def handle_load_request(payload: dict) -> CallbackResult:
         ):
             raise CallbackConflict("shipment is not packed or truck has not arrived")
 
+        if locked.status in (
+            ShipmentStatus.LOADED,
+            ShipmentStatus.OUT_FOR_DELIVERY,
+            ShipmentStatus.DELIVERED,
+        ) and locked.truck_id is not None and locked.truck_id != truck_id:
+            raise CallbackConflict("truck_id does not match shipment")
+
+        locked.truck_id = truck_id
         if locked.status in (ShipmentStatus.PACKED, ShipmentStatus.TRUCK_ARRIVED):
             locked.status = ShipmentStatus.LOADING
 
