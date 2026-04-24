@@ -248,7 +248,7 @@ class ShipmentDestinationView(InteropAPIView):
 class WorldBindingView(InteropAPIView):
     def get(self, request):
         binding = get_world_binding()
-        if binding is None:
+        if binding is None or binding.result != "connected!":
             return _err("WORLD_NOT_READY", "UPS has not established a World connection yet.", http_status=503)
         body = {
             "world_id": int(binding.world_id),

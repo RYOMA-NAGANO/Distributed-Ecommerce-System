@@ -197,15 +197,37 @@ def format_responses(responses):
 
 def open_world_session(connect_timeout=10, read_timeout=2.0, world_id: int | None = None):
     connect_message = build_connect_message(world_id_override=world_id)
+    sock = None
     try:
         sock = socket.create_connection((settings.WORLD_HOST, settings.WORLD_PORT), timeout=connect_timeout)
         sock.settimeout(connect_timeout)
         send_message(sock, connect_message)
         connected = receive_connected(sock)
     except OSError as exc:
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
         raise WorldConnectionError(
             f"Failed to connect to World server at {settings.WORLD_HOST}:{settings.WORLD_PORT}: {exc}"
         ) from exc
+    except WorldConnectionError:
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
+        raise
+
+    if connected.result != "connected!":
+        try:
+            sock.close()
+        except Exception:
+            pass
+        raise WorldConnectionError(
+            f"World rejected UPS connection for world_id={world_id}: {connected.result}"
+        )
 
     sock.settimeout(float(read_timeout))
 

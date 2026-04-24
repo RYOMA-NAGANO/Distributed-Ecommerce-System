@@ -5,18 +5,15 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Q
-from django.http import HttpResponseForbidden, JsonResponse
+from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.views import View
 from django.views.generic import ListView
 
-from apps.interop.services.world_client import query_truck_status
-from apps.interop.services.world_binding import get_world_binding
-
 from . import auip_states as S
 from .auip_services import update_destination_for_owner
 from .forms import DestinationUpdateForm
-from .models import Package, PositionUpdate, TrackedShipment
+from .models import Package, TrackedShipment
 from .services import ShipmentNotFoundError, ShipmentStateError
 
 INTEROP_OWNER = "_amazon_interop"
@@ -58,11 +55,11 @@ def _build_map_bounds(points: list[tuple[int, int]]) -> dict[str, int]:
 
 
 def _infer_current_position(package, position_events):
+    if package.status == S.DELIVERED:
+        return int(package.dest_x), int(package.dest_y), "Delivered destination"
     if position_events:
         latest = max(position_events, key=lambda update: (int(update.update_time), int(update.id)))
         return int(latest.x), int(latest.y), "Reported from truck updates"
-    if package.status == S.DELIVERED:
-        return int(package.dest_x), int(package.dest_y), "Delivered destination"
     return int(package.warehouse_x), int(package.warehouse_y), "Estimated at warehouse"
 
 
@@ -206,6 +203,17 @@ class PackageListView(LoginRequiredMixin, ListView):
                         "y": int(update.y),
                     }
                 )
+
+            for update in position_events:
+                events.append(
+                    {
+                        "time": int(update.update_time),
+                        "type": "Position",
+                        "description": f"Position updated to ({update.x}, {update.y})",
+                        "x": int(update.x),
+                        "y": int(update.y),
+                    }
+                )
             events.sort(key=lambda item: (item["time"], item["type"], item["description"]))
             package.detail_events_json = json.dumps(events)
 
@@ -276,70 +284,3 @@ class PackageDestinationUpdateView(LoginRequiredMixin, View):
 
         messages.success(request, "Destination updated.")
         return redirect(next_url)
-
-
-class PackageLivePositionView(LoginRequiredMixin, View):
-    def get(self, request, shipment_id):
-        package = (
-            Package.objects.select_related("truck")
-            .filter(shipment_id=shipment_id, user=request.user)
-            .first()
-        )
-        if package is None:
-            return JsonResponse({"detail": "Shipment not found."}, status=404)
-
-        latest_position = (
-            PositionUpdate.objects.filter(shipment=package)
-            .order_by("-update_time", "-id")
-            .first()
-        )
-
-        if latest_position is not None:
-            current_x = int(latest_position.x)
-            current_y = int(latest_position.y)
-        elif package.status == S.DELIVERED:
-            current_x = int(package.dest_x)
-            current_y = int(package.dest_y)
-        else:
-            current_x = int(package.warehouse_x)
-            current_y = int(package.warehouse_y)
-
-        resolved_world_id = int(package.world_id)
-        if resolved_world_id <= 0:
-            binding = get_world_binding()
-            if binding is not None:
-                resolved_world_id = int(binding.world_id)
-
-        if package.truck_id is not None and resolved_world_id > 0:
-            live = _fetch_live_truck_position(
-                world_id=resolved_world_id,
-                truck_id=int(package.truck_id),
-            )
-            if live is not None:
-                current_x = int(live["x"])
-                current_y = int(live["y"])
-
-        return JsonResponse(
-            {
-                "shipment_id": package.shipment_id,
-                "x": current_x,
-                "y": current_y,
-                "destination_x": int(package.dest_x),
-                "destination_y": int(package.dest_y),
-                "warehouse_x": int(package.warehouse_x),
-                "warehouse_y": int(package.warehouse_y),
-                "warehouse_id": int(package.warehouse_id),
-                "truck_id": int(package.truck_id) if package.truck_id is not None else None,
-            }
-        )
-
-
-def _fetch_live_truck_position(*, world_id: int, truck_id: int) -> dict | None:
-    try:
-        return query_truck_status(
-            truck_id=int(truck_id),
-            world_id=int(world_id),
-            timeout=0.9,
-        )
-    except Exception:
-        return None

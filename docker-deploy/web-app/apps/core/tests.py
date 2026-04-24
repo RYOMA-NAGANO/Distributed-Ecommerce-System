@@ -20,6 +20,7 @@ from .models import (
     Truck,
 )
 from .views import INTEROP_OWNER
+from apps.interop.models import WorldBinding
 
 
 class PackageOwnershipSearchTests(TestCase):
@@ -301,6 +302,32 @@ class PackageOwnershipSearchTests(TestCase):
         self.assertContains(response, "View details")
         self.assertContains(response, reverse("package-destination-update", args=[package.shipment_id]))
 
+    def test_world_binding_endpoint_returns_current_connected_world(self):
+        WorldBinding.objects.create(id=1, world_id=42, result="connected!")
+
+        response = self.client.get(
+            reverse("auip-world-binding"),
+            HTTP_AUTHORIZATION="Bearer mini-ups-shared-secret",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["world_id"], 42)
+
+    def test_world_binding_endpoint_hides_rejected_binding(self):
+        WorldBinding.objects.create(
+            id=1,
+            world_id=1,
+            result="error",
+        )
+
+        response = self.client.get(
+            reverse("auip-world-binding"),
+            HTTP_AUTHORIZATION="Bearer mini-ups-shared-secret",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error_code"], "WORLD_NOT_READY")
+
     def test_non_owner_search_result_cannot_view_details(self):
         package = self.create_owned_package(user=self.alice)
         PositionUpdate.objects.create(shipment=package, x=1, y=2, update_time=20)
@@ -314,32 +341,38 @@ class PackageOwnershipSearchTests(TestCase):
         self.assertNotContains(response, "Position updated to (1, 2)")
         self.assertEqual(list(response.context["packages"]), [])
 
-    @patch("apps.core.views._fetch_live_truck_position")
-    def test_owner_live_position_endpoint_returns_world_coordinates(self, mock_live_lookup):
-        truck = Truck.objects.create(
-            truck_id=41,
-            truck_status=Truck.TruckStatus.TRAVELING,
-        )
-        package = self.create_owned_package(user=self.alice, truck=truck, shipment_id="PKG-LIVE-1")
-        mock_live_lookup.return_value = {"x": 55, "y": 66}
+    def test_owner_package_uses_latest_recorded_position_for_map(self):
+        package = self.create_owned_package(user=self.alice, shipment_id="PKG-LIVE-1")
+        PositionUpdate.objects.create(shipment=package, x=1, y=2, update_time=20)
+        PositionUpdate.objects.create(shipment=package, x=55, y=66, update_time=30)
         self.client.force_login(self.alice)
 
-        response = self.client.get(reverse("package-live-position", args=[package.shipment_id]))
+        response = self.client.get(reverse("my-packages"))
 
         self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertEqual((payload["x"], payload["y"]), (55, 66))
-        self.assertEqual(payload["truck_id"], truck.truck_id)
+        rendered = response.context["packages"][0]
+        self.assertEqual((rendered.current_position_x, rendered.current_position_y), (55, 66))
+        self.assertContains(response, "Position updated to (55, 66)")
+        self.assertNotContains(response, "data-live-url")
+        self.assertNotContains(response, "live-position")
 
-    @patch("apps.core.views._fetch_live_truck_position")
-    def test_non_owner_live_position_endpoint_is_hidden(self, mock_live_lookup):
-        package = self.create_owned_package(user=self.alice, shipment_id="PKG-LIVE-2")
-        self.client.force_login(self.bob)
+    def test_delivered_package_uses_destination_instead_of_latest_position(self):
+        package = self.create_owned_package(
+            user=self.alice,
+            shipment_id="PKG-LIVE-2",
+            status=S.DELIVERED,
+        )
+        PositionUpdate.objects.create(shipment=package, x=55, y=66, update_time=30)
+        self.client.force_login(self.alice)
 
-        response = self.client.get(reverse("package-live-position", args=[package.shipment_id]))
+        response = self.client.get(reverse("my-packages"))
 
-        self.assertEqual(response.status_code, 404)
-        mock_live_lookup.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+        rendered = response.context["packages"][0]
+        self.assertEqual(
+            (rendered.current_position_x, rendered.current_position_y),
+            (package.dest_x, package.dest_y),
+        )
 
     def test_auip_create_records_initial_destination(self):
         package = auip_create_shipment(
@@ -455,6 +488,114 @@ class PackageOwnershipSearchTests(TestCase):
             },
         )
 
+    def test_world_position_recording_skips_delivered_packages(self):
+        from apps.interop.management.commands.run_ups_daemon import Command
+
+        truck = Truck.objects.create(
+            truck_id=10,
+            truck_status=Truck.TruckStatus.DELIVERING,
+        )
+        active_package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-POS-ACTIVE",
+            status=S.OUT_FOR_DELIVERY,
+        )
+        delivered_package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-POS-DELIVERED",
+            status=S.DELIVERED,
+            world_package_id=1002,
+        )
+        command = Command()
+        command._current_world_id = 1
+
+        command._record_truck_package_positions(truck.truck_id, 77, 88)
+
+        self.assertEqual(
+            set(PositionUpdate.objects.values_list("shipment_id", "x", "y")),
+            {
+                (active_package.shipment_id, 77, 88),
+            },
+        )
+        self.assertFalse(
+            PositionUpdate.objects.filter(shipment=delivered_package).exists()
+        )
+
+    def test_world_position_recording_skips_unchanged_coordinates(self):
+        from apps.interop.management.commands.run_ups_daemon import Command
+
+        truck = Truck.objects.create(
+            truck_id=11,
+            truck_status=Truck.TruckStatus.DELIVERING,
+        )
+        package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-POS-DEDUP",
+            status=S.OUT_FOR_DELIVERY,
+        )
+        command = Command()
+        command._current_world_id = 1
+
+        command._record_truck_package_positions(truck.truck_id, 77, 88)
+        command._record_truck_package_positions(truck.truck_id, 77, 88)
+        command._record_truck_package_positions(truck.truck_id, 78, 88)
+
+        self.assertEqual(
+            list(
+                PositionUpdate.objects.filter(shipment=package)
+                .order_by("id")
+                .values_list("x", "y")
+            ),
+            [(77, 88), (78, 88)],
+        )
+
+    def test_delivery_waits_until_same_truck_finishes_warehouse_loading(self):
+        from apps.interop.management.commands.run_ups_daemon import Command
+
+        truck = Truck.objects.create(
+            truck_id=13,
+            truck_status=Truck.TruckStatus.ARRIVE_WAREHOUSE,
+        )
+        self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-STILL-LOADING",
+            status=S.LOADING,
+        )
+        loaded = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-READY-DELIVERY",
+            status=S.LOADED,
+            world_package_id=1004,
+        )
+        command = Command()
+        command._current_world_id = 1
+        send_deliver = lambda *args, **kwargs: self.fail("delivery should not be dispatched")
+
+        command._enqueue_deliveries(None, send_deliver)
+
+        loaded.refresh_from_db()
+        truck.refresh_from_db()
+        self.assertIsNone(loaded.delivery_seqnum)
+        self.assertEqual(loaded.status, S.LOADED)
+        self.assertEqual(truck.truck_status, Truck.TruckStatus.ARRIVE_WAREHOUSE)
+
+    def test_pickup_selection_skips_truck_waiting_for_warehouse_loading(self):
+        from apps.interop.management.commands.run_ups_daemon import Command
+
+        truck = Truck.objects.create(
+            truck_id=14,
+            truck_status=Truck.TruckStatus.ARRIVE_WAREHOUSE,
+        )
+        self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-BLOCK-PICKUP",
+            status=S.TRUCK_ARRIVED,
+        )
+        command = Command()
+        command._current_world_id = 1
+
+        self.assertIsNone(command._select_dispatchable_pickup_truck())
+
     def test_recover_stuck_loading_requeues_package_when_truck_is_idle(self):
         truck = Truck.objects.create(
             truck_id=12,
@@ -465,6 +606,33 @@ class PackageOwnershipSearchTests(TestCase):
             shipment_id="PKG-STUCK-LOAD-1",
             status=S.LOADING,
             world_package_id=1003,
+        )
+
+        updated = auip_recover_stuck_loading(world_id=package.world_id)
+
+        self.assertEqual(updated, 1)
+        package.refresh_from_db()
+        self.assertEqual(package.status, S.PACKED)
+        self.assertIsNone(package.truck_id)
+        self.assertEqual(
+            list(
+                StatusUpdate.objects.filter(shipment=package)
+                .order_by("id")
+                .values_list("status", flat=True)
+            ),
+            [S.PACKED],
+        )
+
+    def test_recover_stuck_truck_arrived_requeues_package_when_truck_is_idle(self):
+        truck = Truck.objects.create(
+            truck_id=15,
+            truck_status=Truck.TruckStatus.IDLE,
+        )
+        package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-STUCK-ARRIVED-1",
+            status=S.TRUCK_ARRIVED,
+            world_package_id=1005,
         )
 
         updated = auip_recover_stuck_loading(world_id=package.world_id)

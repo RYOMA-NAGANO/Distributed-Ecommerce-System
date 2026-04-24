@@ -13,4 +13,5 @@ connection.ensure_connection()
 done
 echo "Database ready."
 
+python manage.py migrate --noinput
 python daemon/main.py

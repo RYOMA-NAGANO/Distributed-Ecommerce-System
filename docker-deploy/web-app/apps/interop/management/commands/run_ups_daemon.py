@@ -20,7 +20,7 @@ from apps.core.models import Package, PositionUpdate, Truck
 from apps.interop.services import amazon_client
 from apps.interop.services.world_response_dedupe import claim_world_response_seq
 from apps.interop.services.seqnum import allocate_next_seqnum
-from apps.interop.services.world_binding import get_world_binding, set_world_binding
+from apps.interop.services.world_binding import clear_world_binding, get_world_binding, set_world_binding
 
 
 class Command(BaseCommand):
@@ -44,6 +44,10 @@ class Command(BaseCommand):
         S.LOADING,
         S.LOADED,
         S.OUT_FOR_DELIVERY,
+    )
+    _PENDING_WAREHOUSE_LOAD_STATUSES = (
+        S.TRUCK_ARRIVED,
+        S.LOADING,
     )
 
     def add_arguments(self, parser):
@@ -92,12 +96,14 @@ class Command(BaseCommand):
                     world_id=int(existing_binding.world_id),
                 )
             except WorldConnectionError:
+                clear_world_binding()
                 session = None
 
         if session is None:
             try:
                 session = open_world_session(connect_timeout=timeout, read_timeout=read_timeout)
             except WorldConnectionError as exc:
+                clear_world_binding()
                 raise CommandError(str(exc)) from exc
 
         result = session.handshake
@@ -168,6 +174,7 @@ class Command(BaseCommand):
 
                 process_responses(responses)
         finally:
+            clear_world_binding()
             session.sock.close()
 
     def _enqueue_pickups(self, sock, send_pickup):
@@ -236,9 +243,10 @@ class Command(BaseCommand):
         )
         trucks.sort(key=lambda t: (priority.get(t.truck_status, 99), int(t.truck_id)))
 
-        # Dispatch decision is based on current truck status only.
-        # Do not block on historical package-truck bindings.
-        return trucks[0] if trucks else None
+        for truck in trucks:
+            if not self._truck_has_pending_warehouse_loads(int(truck.truck_id)):
+                return truck
+        return None
 
     def _enqueue_truck_queries(self, sock, send_query, interval_seconds: float = 1.0):
         if self._current_world_id is None:
@@ -297,11 +305,15 @@ class Command(BaseCommand):
                 )
                 if locked is None or locked.world_package_id is None:
                     continue
+                if locked.truck_id is None:
+                    continue
+                if self._truck_has_pending_warehouse_loads(int(locked.truck_id)):
+                    continue
 
                 seq = allocate_next_seqnum()
                 send_deliver(
                     sock,
-                    truck_id=locked.truck_id,
+                    truck_id=int(locked.truck_id),
                     world_package_id=int(locked.world_package_id),
                     dest_x=locked.dest_x,
                     dest_y=locked.dest_y,
@@ -315,7 +327,7 @@ class Command(BaseCommand):
                 locked.save(update_fields=["delivery_seqnum", "status"])
                 if locked.status != previous_status:
                     record_status_update(locked, locked.status)
-                Truck.objects.filter(truck_id=locked.truck_id).update(
+                Truck.objects.filter(truck_id=int(locked.truck_id)).update(
                     truck_status=Truck.TruckStatus.DELIVERING
                 )
 
@@ -412,30 +424,49 @@ class Command(BaseCommand):
         for package in Package.objects.filter(
             world_id=int(self._current_world_id),
             truck_id=truck_id,
-        ).only("shipment_id"):
-            PositionUpdate.objects.create(shipment_id=package.shipment_id, x=x, y=y, update_time=now_epoch)
+        ).exclude(status=S.DELIVERED).only("shipment_id"):
+            self._record_package_position_if_changed(package.shipment_id, x, y, now_epoch)
 
     def _record_truck_package_positions(self, truck_id: int, x: int, y: int):
         if self._current_world_id is None:
             return
         now_epoch = int(time.time())
-        package_ids = list(
+        shipment_ids = list(
             Package.objects.filter(
                 world_id=int(self._current_world_id),
                 truck_id=int(truck_id),
-            ).values_list("shipment_id", flat=True)
+            )
+            .exclude(status=S.DELIVERED)
+            .values_list("shipment_id", flat=True)
         )
-        PositionUpdate.objects.bulk_create(
-            [
-                PositionUpdate(
-                    shipment_id=shipment_id,
-                    x=int(x),
-                    y=int(y),
-                    update_time=now_epoch,
-                )
-                for shipment_id in package_ids
-            ]
+        for shipment_id in shipment_ids:
+            self._record_package_position_if_changed(shipment_id, x, y, now_epoch)
+
+    def _record_package_position_if_changed(self, shipment_id: str, x: int, y: int, update_time: int) -> bool:
+        latest = (
+            PositionUpdate.objects.filter(shipment_id=shipment_id)
+            .order_by("-update_time", "-id")
+            .values("x", "y")
+            .first()
         )
+        if latest is not None and int(latest["x"]) == int(x) and int(latest["y"]) == int(y):
+            return False
+        PositionUpdate.objects.create(
+            shipment_id=shipment_id,
+            x=int(x),
+            y=int(y),
+            update_time=int(update_time),
+        )
+        return True
+
+    def _truck_has_pending_warehouse_loads(self, truck_id: int) -> bool:
+        if self._current_world_id is None:
+            return False
+        return Package.objects.filter(
+            world_id=int(self._current_world_id),
+            truck_id=int(truck_id),
+            status__in=self._PENDING_WAREHOUSE_LOAD_STATUSES,
+        ).exists()
 
     def _handle_u_err(self, err_msg):
         if self._current_world_id is None:

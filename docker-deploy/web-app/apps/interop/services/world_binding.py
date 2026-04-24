@@ -19,3 +19,7 @@ def set_world_binding(world_id: int, result: str = "") -> WorldBinding:
 
 def get_world_binding() -> WorldBinding | None:
     return WorldBinding.objects.filter(id=_SINGLETON_ID).first()
+
+
+def clear_world_binding() -> None:
+    WorldBinding.objects.filter(id=_SINGLETON_ID).delete()

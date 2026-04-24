@@ -59,7 +59,6 @@
                     class="ups-btn ups-btn-primary ups-details-view"
                     data-target="details-{{ forloop.counter }}"
                     data-events="{{ package.detail_events_json }}"
-                    data-live-url="{% url 'package-live-position' package.shipment_id %}"
                     aria-expanded="false"
                     aria-controls="details-{{ forloop.counter }}"
                   >View details</button>
@@ -517,82 +516,12 @@
       };
     }
 
-    let liveTimer = null;
-    let liveFetchInFlight = false;
-    let liveMap = null;
-    let liveUrl = "";
-
-    function stopLivePolling() {
-      if (liveTimer) {
-        clearInterval(liveTimer);
-        liveTimer = null;
-      }
-      liveFetchInFlight = false;
-      liveMap = null;
-      liveUrl = "";
-    }
-
-    async function pollLivePosition() {
-      if (!liveMap || !liveUrl || liveFetchInFlight) return;
-      liveFetchInFlight = true;
-      try {
-        const response = await fetch(liveUrl, {
-          method: "GET",
-          headers: { "X-Requested-With": "XMLHttpRequest" },
-          credentials: "same-origin",
-        });
-        if (!response.ok) {
-          if (response.status === 403 || response.status === 404) {
-            stopLivePolling();
-          }
-          return;
-        }
-        const payload = await response.json();
-        const x = toNumber(payload.x);
-        const y = toNumber(payload.y);
-        if (x !== null && y !== null) {
-          liveMap.dataset.currentX = String(x);
-          liveMap.dataset.currentY = String(y);
-        }
-        const destinationX = toNumber(payload.destination_x);
-        const destinationY = toNumber(payload.destination_y);
-        if (destinationX !== null && destinationY !== null) {
-          liveMap.dataset.destinationX = String(destinationX);
-          liveMap.dataset.destinationY = String(destinationY);
-        }
-        const warehouseX = toNumber(payload.warehouse_x);
-        const warehouseY = toNumber(payload.warehouse_y);
-        if (warehouseX !== null && warehouseY !== null) {
-          liveMap.dataset.warehouseX = String(warehouseX);
-          liveMap.dataset.warehouseY = String(warehouseY);
-        }
-        if (payload.warehouse_id !== null && payload.warehouse_id !== undefined) {
-          liveMap.dataset.warehouseId = String(payload.warehouse_id);
-        }
-        renderMap(liveMap);
-      } catch (error) {
-        return;
-      } finally {
-        liveFetchInFlight = false;
-      }
-    }
-
-    function startLivePolling(map, url) {
-      stopLivePolling();
-      if (!map || !url) return;
-      liveMap = map;
-      liveUrl = url;
-      pollLivePosition();
-      liveTimer = window.setInterval(pollLivePosition, 1000);
-    }
-
     document.querySelectorAll(".ups-details-view").forEach((button) => {
       button.addEventListener("click", () => {
         const panel = document.getElementById(button.dataset.target);
         if (!panel) return;
         const timeline = panel.querySelector(".ups-detail-timeline");
         const map = panel.querySelector(".ups-package-map");
-        const liveUrl = button.dataset.liveUrl || "";
         const isOpening = panel.hidden;
 
         document.querySelectorAll(".ups-detail-collapse").forEach((otherPanel) => {
@@ -605,7 +534,6 @@
         if (!isOpening) {
           panel.hidden = true;
           button.setAttribute("aria-expanded", "false");
-          stopLivePolling();
           return;
         }
 
@@ -619,7 +547,6 @@
         renderEvents(timeline, events);
         clearClickCoordinate(map);
         renderMap(map);
-        startLivePolling(map, liveUrl);
         button.setAttribute("aria-expanded", "true");
       });
     });
@@ -730,8 +657,6 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !modal.hidden) closeModal();
     });
-
-    window.addEventListener("beforeunload", stopLivePolling);
   })();
 </script>
 {% endblock %}

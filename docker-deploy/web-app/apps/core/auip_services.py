@@ -437,11 +437,11 @@ def auip_recover_stale_pickup_requests(limit: int = 30, world_id: int | None = N
 @transaction.atomic
 def auip_recover_stuck_loading(limit: int = 20, world_id: int | None = None) -> int:
     """
-    Self-heal UPS rows that remained LOADING after missed/failed cross-service updates.
+    Self-heal UPS rows waiting for Amazon loading after missed/failed cross-service updates.
     If the truck is still at the warehouse, retry loading from TRUCK_ARRIVED.
     If the truck has already left or gone idle, requeue the package for pickup.
     """
-    qs = Package.objects.select_related("truck").select_for_update().filter(status=S.LOADING)
+    qs = Package.objects.select_for_update().filter(status__in=[S.LOADING, S.TRUCK_ARRIVED])
     if world_id is not None:
         qs = qs.filter(world_id=int(world_id))
     ids = list(qs.values_list("shipment_id", flat=True)[:limit])
@@ -450,11 +450,17 @@ def auip_recover_stuck_loading(limit: int = 20, world_id: int | None = None) -> 
     updated = 0
     for package in Package.objects.select_for_update().filter(
         shipment_id__in=ids,
-        status=S.LOADING,
-    ).select_related("truck"):
+        status__in=[S.LOADING, S.TRUCK_ARRIVED],
+    ):
         previous_status = package.status
         update_fields = []
-        truck_status = package.truck.truck_status if package.truck is not None else None
+        truck_status = None
+        if package.truck_id is not None:
+            truck_status = (
+                Truck.objects.filter(truck_id=int(package.truck_id))
+                .values_list("truck_status", flat=True)
+                .first()
+            )
 
         if truck_status in (
             Truck.TruckStatus.ARRIVE_WAREHOUSE,
@@ -477,7 +483,7 @@ def auip_recover_stuck_loading(limit: int = 20, world_id: int | None = None) -> 
             record_status_update(package, package.status)
             updated += 1
     if updated:
-        logger.info("recovered %d stuck LOADING packages", updated)
+        logger.info("recovered %d stuck warehouse-loading packages", updated)
     return int(updated)
 
 

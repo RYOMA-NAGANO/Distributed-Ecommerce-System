@@ -131,6 +131,11 @@ def main():
                 scheduler.stop()
             if ack_mgr:
                 ack_mgr.stop()
+            if client:
+                client.disconnect()
+            scheduler = None
+            ack_mgr = None
+            client = None
 
         time.sleep(10)
 
