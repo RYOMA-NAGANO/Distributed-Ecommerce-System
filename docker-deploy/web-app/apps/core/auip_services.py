@@ -360,13 +360,23 @@ def auip_mark_ready(shipment_id: str, warehouse_id: int, world_id: int) -> Packa
 
 def auip_try_send_load_request_and_loading(package: Package) -> None:
     try:
-        amazon_client.notify_load_request(package)
+        response = amazon_client.notify_load_request(package) or {}
     except Exception:
         return
+    amazon_status = str(response.get("status") or "").lower()
     with transaction.atomic():
         p = Package.objects.select_for_update().filter(shipment_id=package.shipment_id).first()
-        if p and p.status in (S.PACKED, S.TRUCK_ARRIVED):
-            previous_status = p.status
+        if p is None:
+            return
+        previous_status = p.status
+        if amazon_status in (S.LOADED, S.OUT_FOR_DELIVERY, S.DELIVERED):
+            if p.status in (S.PACKED, S.TRUCK_ARRIVED, S.LOADING):
+                p.status = S.LOADED
+                p.save(update_fields=["status"])
+                record_status_update(p, p.status)
+                _notify_on_commit(notify_package_loaded, p.shipment_id)
+            return
+        if p.status in (S.PACKED, S.TRUCK_ARRIVED):
             p.status = S.LOADING
             p.save(update_fields=["status"])
             if p.status != previous_status:

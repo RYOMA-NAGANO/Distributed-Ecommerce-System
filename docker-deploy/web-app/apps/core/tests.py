@@ -11,6 +11,7 @@ from .auip_services import (
     auip_confirm_loaded,
     auip_mark_ready,
     auip_recover_stuck_loading,
+    auip_try_send_load_request_and_loading,
     auip_update_destination,
     update_destination_for_owner,
 )
@@ -529,6 +530,37 @@ class PackageOwnershipSearchTests(TestCase):
 
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, [self.alice.email])
+        self.assertIn("loaded", mail.outbox[0].subject.lower())
+
+    def test_load_request_loaded_response_marks_package_loaded(self):
+        truck = Truck.objects.create(
+            truck_id=18,
+            truck_status=Truck.TruckStatus.LOADING,
+        )
+        package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-LOAD-RECONCILE",
+            status=S.TRUCK_ARRIVED,
+        )
+
+        with patch(
+            "apps.core.auip_services.amazon_client.notify_load_request",
+            return_value={"status": S.LOADED},
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                auip_try_send_load_request_and_loading(package)
+
+        package.refresh_from_db()
+        self.assertEqual(package.status, S.LOADED)
+        self.assertEqual(
+            list(
+                StatusUpdate.objects.filter(shipment=package)
+                .order_by("id")
+                .values_list("status", flat=True)
+            ),
+            [S.LOADED],
+        )
+        self.assertEqual(len(mail.outbox), 1)
         self.assertIn("loaded", mail.outbox[0].subject.lower())
 
     def test_destination_update_emails_owner(self):
