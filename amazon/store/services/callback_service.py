@@ -211,6 +211,13 @@ def _required_int(payload: dict, field: str) -> int:
 
 
 def _record_event(shipment: Shipment, event_type: str, payload: dict) -> None:
+    if event_type == "load_request":
+        if ShipmentEvent.objects.filter(
+            shipment=shipment,
+            event_type="load_request",
+        ).exists():
+            return
+
     ShipmentEvent.objects.create(
         shipment=shipment,
         source=EventSource.UPS,
