@@ -420,6 +420,12 @@
             color: #175c2a;
         }
 
+        .message.warning {
+            border-color: #e8c85d;
+            background: #fff7d6;
+            color: #6f4e00;
+        }
+
         .errorlist {
             margin: 6px 0 0;
             padding-left: 18px;
@@ -702,7 +708,7 @@
         {% if messages %}
             <div class="message-list">
                 {% for message in messages %}
-                    <div class="message">{{ message }}</div>
+                    <div class="message{% if message.tags %} {{ message.tags }}{% endif %}">{{ message }}</div>
                 {% endfor %}
             </div>
         {% endif %}

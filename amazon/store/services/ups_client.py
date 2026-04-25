@@ -41,6 +41,7 @@ def create_shipment(shipment: Shipment) -> dict:
             "x": shipment.destination_x,
             "y": shipment.destination_y,
         },
+        "ups_account": shipment.order.ups_account or "",
         "items": [
             {
                 "product_id": item.product.product_id,

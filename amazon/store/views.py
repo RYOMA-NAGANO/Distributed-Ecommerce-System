@@ -166,7 +166,7 @@ def product_detail(request, product_id):
         form = CheckoutForm(request.POST)
         if form.is_valid():
             try:
-                order, _shipment = create_order_from_product(
+                order, shipment = create_order_from_product(
                     user=request.user,
                     product_data=product,
                     quantity=form.cleaned_data["quantity"],
@@ -174,6 +174,9 @@ def product_detail(request, product_id):
                     destination_y=form.cleaned_data["destination_y"],
                     ups_account=form.cleaned_data.get("ups_account", ""),
                 )
+                ups_account_binding = _latest_ups_account_binding(shipment)
+                if ups_account_binding["message"]:
+                    messages.warning(request, ups_account_binding["message"])
                 return redirect("order_detail", amazon_order_id=order.amazon_order_id)
             except Exception as exc:
                 logger.exception("Failed to create order for product %s", product_id)
@@ -399,6 +402,7 @@ def _build_order_detail_context(order: Order, event_page_number=None):
             shipment_model.status,
         )
     )
+    ups_account_binding = _latest_ups_account_binding(shipment_model)
     shipment_events_page_obj = Paginator(shipment_events, 8).get_page(event_page_number)
 
     return {
@@ -406,8 +410,27 @@ def _build_order_detail_context(order: Order, event_page_number=None):
         "shipment": shipment,
         "shipment_items": shipment_items,
         "timeline_steps": build_timeline_steps(shipment_model.status),
+        "ups_account_linked": ups_account_binding["linked"],
         "shipment_events": shipment_events_page_obj.object_list,
         "shipment_events_page_obj": shipment_events_page_obj,
+    }
+
+
+def _latest_ups_account_binding(shipment):
+    event = (
+        shipment.events.filter(event_type="ups_create_shipment")
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    payload = event.payload if event and isinstance(event.payload, dict) else {}
+    if payload.get("ups_account_linked") is False:
+        return {
+            "linked": False,
+            "message": payload.get("ups_account_message") or "The UPS account email is not registered with UPS.",
+        }
+    return {
+        "linked": payload.get("ups_account_linked") is True,
+        "message": "",
     }
 
 

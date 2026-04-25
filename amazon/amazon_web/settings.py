@@ -129,6 +129,9 @@ LOGIN_REDIRECT_URL = "home"
 LOGOUT_REDIRECT_URL = "home"
 LOGIN_URL = "login"
 
+SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "amazon_sessionid")
+CSRF_COOKIE_NAME = os.getenv("CSRF_COOKIE_NAME", "amazon_csrftoken")
+
 DEFAULT_CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",

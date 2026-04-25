@@ -72,7 +72,7 @@
             <div>{{ shipment.destination }}</div>
         </div>
 
-        {% if order.ups_account %}
+        {% if order.ups_account and ups_account_linked %}
         <div class="field-group">
             <label>UPS Account</label>
             <div>{{ order.ups_account }}</div>

@@ -191,7 +191,6 @@ def _sync_shipment_to_ups(shipment_pk: int) -> None:
 
     try:
         create_response = create_shipment(shipment)
-        pickup_response = request_pickup(shipment)
 
         tracking_number = create_response.get("tracking_number") or shipment.tracking_number
         if tracking_number and tracking_number != shipment.tracking_number:
@@ -206,6 +205,8 @@ def _sync_shipment_to_ups(shipment_pk: int) -> None:
             status_snapshot=shipment.status,
             payload=create_response,
         )
+
+        pickup_response = request_pickup(shipment)
         ShipmentEvent.objects.create(
             shipment=shipment,
             source=EventSource.WEB,
