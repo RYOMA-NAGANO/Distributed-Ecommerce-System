@@ -64,6 +64,7 @@ def create_order_from_product(
     quantity: int,
     destination_x: int,
     destination_y: int,
+    ups_account: str = "",
 ):
     warehouse = _get_default_warehouse(destination_x=destination_x, destination_y=destination_y)
     shipment_id = _generate_shipment_id(world_id=warehouse.world_id)
@@ -87,6 +88,7 @@ def create_order_from_product(
             amazon_order_id=amazon_order_id,
             requested_destination_x=destination_x,
             requested_destination_y=destination_y,
+            ups_account=ups_account or "",
         )
 
         shipment = Shipment.objects.create(
