@@ -26,7 +26,7 @@ from .forms import (
     UserProfileForm,
     UserSignupForm,
 )
-from .models import HttpDirection, HttpIdempotencyRecord, Order, Shipment
+from .models import HttpDirection, HttpIdempotencyRecord, Order, Shipment, ShipmentStatus
 from .services.callback_service import (
     CallbackBadRequest,
     CallbackConflict,
@@ -40,6 +40,25 @@ from .services.order_service import create_order_from_product
 from .services.status import build_timeline_steps
 
 logger = logging.getLogger(__name__)
+
+
+RESOLVED_TRANSIENT_EVENT_STATUSES = {
+    "load_failed": {
+        ShipmentStatus.LOADED,
+        ShipmentStatus.OUT_FOR_DELIVERY,
+        ShipmentStatus.DELIVERED,
+    },
+    "truck_arrived_failed": {
+        ShipmentStatus.TRUCK_ARRIVED,
+        ShipmentStatus.LOADING,
+        ShipmentStatus.LOADED,
+        ShipmentStatus.OUT_FOR_DELIVERY,
+        ShipmentStatus.DELIVERED,
+    },
+    "delivery_failed": {
+        ShipmentStatus.DELIVERED,
+    },
+}
 
 
 class AmazonLoginView(LoginView):
@@ -374,7 +393,10 @@ def _build_order_detail_context(order: Order, event_page_number=None):
     }
 
     shipment_events = _dedupe_shipment_events(
-        shipment_model.events.order_by("-created_at", "-id")
+        _filter_resolved_transient_events(
+            shipment_model.events.order_by("-created_at", "-id"),
+            shipment_model.status,
+        )
     )
     shipment_events_page_obj = Paginator(shipment_events, 8).get_page(event_page_number)
 
@@ -405,3 +427,15 @@ def _dedupe_shipment_events(events):
         last_signature = signature
 
     return deduped_events
+
+
+def _filter_resolved_transient_events(events, current_status):
+    filtered_events = []
+
+    for event in events:
+        resolved_statuses = RESOLVED_TRANSIENT_EVENT_STATUSES.get(event.event_type)
+        if resolved_statuses and current_status in resolved_statuses:
+            continue
+        filtered_events.append(event)
+
+    return filtered_events
