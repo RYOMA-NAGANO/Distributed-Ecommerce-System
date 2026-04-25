@@ -29,13 +29,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-_WAREHOUSES_ENV = [
-    (
-        int(os.getenv("DEFAULT_WAREHOUSE_ID", "1")),
-        int(os.getenv("DEFAULT_WAREHOUSE_X", "2")),
-        int(os.getenv("DEFAULT_WAREHOUSE_Y", "4")),
-    )
-]
+def _parse_warehouses_env():
+    raw_value = (os.getenv("WAREHOUSES", "") or "").strip()
+    if not raw_value:
+        return [
+            (
+                int(os.getenv("DEFAULT_WAREHOUSE_ID", "1")),
+                int(os.getenv("DEFAULT_WAREHOUSE_X", "2")),
+                int(os.getenv("DEFAULT_WAREHOUSE_Y", "4")),
+            )
+        ]
+
+    warehouses = []
+    for raw_entry in raw_value.split(","):
+        wh_id, x, y = raw_entry.strip().split(":", 2)
+        warehouses.append((int(wh_id), int(x), int(y)))
+    if not warehouses:
+        raise ValueError("WAREHOUSES must define at least one warehouse")
+    return warehouses
+
+
+_WAREHOUSES_ENV = _parse_warehouses_env()
 
 
 def _get_world_id():
