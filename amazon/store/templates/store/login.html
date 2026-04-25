@@ -1,0 +1,31 @@
+{% extends "store/base.html" %}
+
+{% block title %}Log in | Mini Amazon{% endblock %}
+
+{% block content %}
+<section class="auth-card">
+    <h1>Log in</h1>
+    <p class="muted">Use your email address and password.</p>
+
+    <form method="post">
+        {% csrf_token %}
+        {% if request.POST.next or request.GET.next %}
+        <input type="hidden" name="next" value="{{ request.POST.next|default:request.GET.next }}">
+        {% endif %}
+        {{ form.non_field_errors }}
+        <div>
+            <label for="{{ form.username.id_for_label }}">{{ form.username.label }}</label>
+            {{ form.username }}
+            {{ form.username.errors }}
+        </div>
+        <div>
+            <label for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>
+            {{ form.password }}
+            {{ form.password.errors }}
+        </div>
+        <button class="btn btn-primary" type="submit">Log in</button>
+    </form>
+
+    <p class="auth-switch">New to Mini Amazon? <a href="{% url 'signup' %}{% if request.POST.next or request.GET.next %}?next={{ request.POST.next|default:request.GET.next|urlencode }}{% endif %}">Create an account</a>.</p>
+</section>
+{% endblock %}

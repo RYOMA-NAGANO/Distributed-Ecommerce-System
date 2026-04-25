@@ -38,6 +38,14 @@
         <div class="price">${{ product.price }}</div>
         <p class="muted">In stock for demo ordering.</p>
 
+        {% if not request.user.is_authenticated %}
+        <div class="panel" style="background: #f8fbfd; margin-top: 14px;">
+            <h2 style="margin-top: 0;">Log in to buy</h2>
+            <p class="muted">Create or use an Amazon account before placing an order.</p>
+            <a class="btn btn-primary" href="{% url 'login' %}?next={{ request.path|urlencode }}">Log in</a>
+            <a class="btn" href="{% url 'signup' %}?next={{ request.path|urlencode }}">Sign up</a>
+        </div>
+        {% else %}
         <form method="post">
             {% csrf_token %}
             {% if form.non_field_errors %}
@@ -72,16 +80,9 @@
                 {% endfor %}
             </div>
 
-            <div class="field-group">
-                <label for="{{ form.ups_account.id_for_label }}">UPS Account (Optional)</label>
-                {{ form.ups_account }}
-                {% for error in form.ups_account.errors %}
-                <div style="color: #b12704; font-size: 0.9rem;">{{ error }}</div>
-                {% endfor %}
-            </div>
-
             <button class="btn btn-primary" type="submit">Place Order</button>
         </form>
+        {% endif %}
     </aside>
 </section>
 {% endblock %}

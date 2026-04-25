@@ -76,20 +76,25 @@ def _recover_loading(world_client, ack_mgr, pending_loads: dict, world_id: int =
 def _reset_stuck_loading(world_id: int = None) -> None:
     """
     Shipments left in LOADING when the daemon crashed: the world may or may
-    not have completed the load. Reset them to PACKED and clear the truck so
-    an invalid or stale truck_arrived callback cannot cause an infinite load
-    retry loop on daemon startup.
+    not have completed the load. Keep a known truck binding so a delayed
+    ALoaded response can still be reconciled, and so the scheduler can retry
+    the load if World never completes it.
     """
     stuck = Shipment.objects.filter(status=ShipmentStatus.LOADING)
     if world_id is not None:
         stuck = stuck.filter(world_id=world_id)
 
     for shipment in stuck:
-        Shipment.objects.filter(
-            pk=shipment.pk, status=ShipmentStatus.LOADING
-        ).update(status=ShipmentStatus.PACKED, truck_id=None)
+        next_status = (
+            ShipmentStatus.TRUCK_ARRIVED
+            if shipment.truck_id is not None
+            else ShipmentStatus.PACKED
+        )
+        Shipment.objects.filter(pk=shipment.pk, status=ShipmentStatus.LOADING).update(
+            status=next_status
+        )
         logger.info(
-            "reconcile: reset stuck LOADING shipment %s → %s and cleared truck_id",
+            "reconcile: reset stuck LOADING shipment %s -> %s",
             shipment.shipment_id,
-            ShipmentStatus.PACKED,
+            next_status,
         )

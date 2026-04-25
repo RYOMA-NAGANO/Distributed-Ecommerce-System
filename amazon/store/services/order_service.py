@@ -3,6 +3,7 @@ import random
 import time
 
 from django.db import transaction
+from django.db.models import Count, Q
 
 from store.models import (
     EventSource,
@@ -25,17 +26,46 @@ DEFAULT_WAREHOUSE_ID = int(os.getenv("DEFAULT_WAREHOUSE_ID", "1"))
 DEFAULT_WAREHOUSE_X = int(os.getenv("DEFAULT_WAREHOUSE_X", "2"))
 DEFAULT_WAREHOUSE_Y = int(os.getenv("DEFAULT_WAREHOUSE_Y", "4"))
 WORLD_DESCRIPTION_MAX_LEN = 50
+ACTIVE_SHIPMENT_STATUSES = [
+    ShipmentStatus.CREATED,
+    ShipmentStatus.PACKING,
+    ShipmentStatus.PACKED,
+    ShipmentStatus.TRUCK_EN_ROUTE,
+    ShipmentStatus.TRUCK_ARRIVED,
+    ShipmentStatus.LOADING,
+    ShipmentStatus.LOADED,
+    ShipmentStatus.OUT_FOR_DELIVERY,
+    ShipmentStatus.UPDATED,
+]
+
+
+def _parse_warehouses_env() -> list[tuple[int, int, int]]:
+    raw_value = (os.getenv("WAREHOUSES", "") or "").strip()
+    if not raw_value:
+        return [(DEFAULT_WAREHOUSE_ID, DEFAULT_WAREHOUSE_X, DEFAULT_WAREHOUSE_Y)]
+
+    warehouses = []
+    for raw_entry in raw_value.split(","):
+        wh_id, x, y = raw_entry.strip().split(":", 2)
+        warehouses.append((int(wh_id), int(x), int(y)))
+    if not warehouses:
+        raise ValueError("WAREHOUSES must define at least one warehouse")
+    return warehouses
+
+
+def _warehouse_distance(warehouse: Warehouse, destination_x: int, destination_y: int) -> int:
+    return abs(warehouse.x - destination_x) + abs(warehouse.y - destination_y)
 
 
 def create_order_from_product(
     *,
+    user,
     product_data: dict,
     quantity: int,
     destination_x: int,
     destination_y: int,
-    ups_account: str = "",
 ):
-    warehouse = _get_default_warehouse()
+    warehouse = _get_default_warehouse(destination_x=destination_x, destination_y=destination_y)
     shipment_id = _generate_shipment_id(world_id=warehouse.world_id)
     amazon_order_id = f"ORD-{shipment_id}"
 
@@ -53,10 +83,10 @@ def create_order_from_product(
 
     with transaction.atomic():
         order = Order.objects.create(
+            user=user,
             amazon_order_id=amazon_order_id,
             requested_destination_x=destination_x,
             requested_destination_y=destination_y,
-            ups_account=ups_account,
         )
 
         shipment = Shipment.objects.create(
@@ -90,7 +120,6 @@ def create_order_from_product(
                 "quantity": quantity,
                 "destination_x": destination_x,
                 "destination_y": destination_y,
-                "ups_account": ups_account,
             },
         )
 
@@ -99,21 +128,49 @@ def create_order_from_product(
     return order, shipment
 
 
-def _get_default_warehouse() -> Warehouse:
+def _get_default_warehouse(*, destination_x: int, destination_y: int) -> Warehouse:
     try:
         world_id = fetch_world_id()
     except UpsClientError as exc:
         raise UpsClientError("UPS has not published a usable world_id yet.") from exc
 
-    warehouse, _ = Warehouse.objects.get_or_create(
-        world_id=world_id,
-        warehouse_id=DEFAULT_WAREHOUSE_ID,
-        defaults={
-            "x": DEFAULT_WAREHOUSE_X,
-            "y": DEFAULT_WAREHOUSE_Y,
-        },
+    configured = _parse_warehouses_env()
+    warehouse_map = {wh_id: (x, y) for wh_id, x, y in configured}
+
+    warehouses = []
+    for wh_id, x, y in configured:
+        warehouse, _ = Warehouse.objects.get_or_create(
+            world_id=world_id,
+            warehouse_id=wh_id,
+            defaults={
+                "x": x,
+                "y": y,
+            },
+        )
+        warehouses.append(warehouse)
+
+    active_counts = {
+        row["warehouse_id"]: row["active_shipments"]
+        for row in (
+            Warehouse.objects.filter(world_id=world_id, warehouse_id__in=warehouse_map.keys())
+            .annotate(
+                active_shipments=Count(
+                    "shipments",
+                    filter=Q(shipments__status__in=ACTIVE_SHIPMENT_STATUSES),
+                )
+            )
+            .values("warehouse_id", "active_shipments")
+        )
+    }
+
+    warehouses.sort(
+        key=lambda warehouse: (
+            _warehouse_distance(warehouse, destination_x, destination_y),
+            active_counts.get(warehouse.warehouse_id, 0),
+            warehouse.warehouse_id,
+        )
     )
-    return warehouse
+    return warehouses[0]
 
 
 def _generate_shipment_id(*, world_id: int) -> str:

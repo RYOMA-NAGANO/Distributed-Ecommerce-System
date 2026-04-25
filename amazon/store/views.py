@@ -3,16 +3,29 @@ import json
 import hashlib
 
 from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import login as auth_login
+from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.views import LoginView, LogoutView
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.http import JsonResponse
 from django.http import Http404
+from django.urls import reverse_lazy
 from django.utils import timezone
+from django.views.generic.edit import CreateView
 from django.views.decorators.csrf import csrf_exempt
 
-from .forms import CheckoutForm
+from .forms import (
+    AmazonAuthenticationForm,
+    AmazonPasswordChangeForm,
+    CheckoutForm,
+    UserProfileForm,
+    UserSignupForm,
+)
 from .models import HttpDirection, HttpIdempotencyRecord, Order, Shipment
 from .services.callback_service import (
     CallbackBadRequest,
@@ -27,6 +40,61 @@ from .services.order_service import create_order_from_product
 from .services.status import build_timeline_steps
 
 logger = logging.getLogger(__name__)
+
+
+class AmazonLoginView(LoginView):
+    authentication_form = AmazonAuthenticationForm
+    template_name = "store/login.html"
+    redirect_authenticated_user = True
+
+
+class AmazonLogoutView(LogoutView):
+    next_page = reverse_lazy("home")
+
+
+class SignupView(CreateView):
+    form_class = UserSignupForm
+    template_name = "store/signup.html"
+
+    def form_valid(self, form):
+        self.object = form.save()
+        auth_login(self.request, self.object)
+        messages.success(self.request, "Account created.")
+        redirect_to = self.request.POST.get("next") or self.request.GET.get("next")
+        if redirect_to:
+            return redirect(redirect_to)
+        return redirect(reverse_lazy("home"))
+
+
+@login_required
+def account_settings(request):
+    profile_form = UserProfileForm(instance=request.user, prefix="profile")
+    password_form = AmazonPasswordChangeForm(request.user, prefix="password")
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "profile":
+            profile_form = UserProfileForm(request.POST, instance=request.user, prefix="profile")
+            if profile_form.is_valid():
+                profile_form.save()
+                messages.success(request, "Profile updated.")
+                return redirect("account_settings")
+        elif action == "password":
+            password_form = AmazonPasswordChangeForm(request.user, request.POST, prefix="password")
+            if password_form.is_valid():
+                user = password_form.save()
+                update_session_auth_hash(request, user)
+                messages.success(request, "Password updated.")
+                return redirect("account_settings")
+
+    return render(
+        request,
+        "store/settings.html",
+        {
+            "profile_form": profile_form,
+            "password_form": password_form,
+        },
+    )
 
 
 def _callback_secret(request) -> str:
@@ -74,15 +142,17 @@ def product_detail(request, product_id):
         raise Http404("Product not found")
 
     if request.method == "POST":
+        if not request.user.is_authenticated:
+            return redirect(f"{reverse_lazy('login')}?next={request.path}")
         form = CheckoutForm(request.POST)
         if form.is_valid():
             try:
                 order, _shipment = create_order_from_product(
+                    user=request.user,
                     product_data=product,
                     quantity=form.cleaned_data["quantity"],
                     destination_x=form.cleaned_data["destination_x"],
                     destination_y=form.cleaned_data["destination_y"],
-                    ups_account=form.cleaned_data["ups_account"],
                 )
                 return redirect("order_detail", amazon_order_id=order.amazon_order_id)
             except Exception as exc:
@@ -98,10 +168,12 @@ def product_detail(request, product_id):
     return render(request, "store/product_detail.html", context)
 
 
+@login_required
 def order_detail(request, amazon_order_id):
     order = get_object_or_404(
         Order.objects.prefetch_related("shipments__items__product"),
         amazon_order_id=amazon_order_id,
+        user=request.user,
     )
     detail_context = _build_order_detail_context(
         order,
@@ -113,18 +185,25 @@ def order_detail(request, amazon_order_id):
     return render(request, "store/order_detail.html", detail_context)
 
 
+@login_required
 def tracking_lookup(request):
     query = request.GET.get("query", "").strip()
     lookup_error = ""
 
     if query:
-        order = Order.objects.filter(amazon_order_id=query).first()
+        order = Order.objects.filter(
+            amazon_order_id=query,
+            user=request.user,
+        ).first()
         if order:
             return redirect("order_detail", amazon_order_id=order.amazon_order_id)
 
         shipment = (
             Shipment.objects.select_related("order")
-            .filter(Q(shipment_id=query) | Q(tracking_number=query))
+            .filter(
+                Q(shipment_id=query) | Q(tracking_number=query),
+                order__user=request.user,
+            )
             .order_by("-created_at")
             .first()
         )
@@ -135,6 +214,7 @@ def tracking_lookup(request):
 
     recent_shipments = (
         Shipment.objects.select_related("order", "warehouse")
+        .filter(order__user=request.user)
         .order_by("-created_at")
     )
     recent_shipments_page_obj = Paginator(recent_shipments, 5).get_page(
