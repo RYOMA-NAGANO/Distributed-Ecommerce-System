@@ -1,0 +1,37 @@
+1. Multiple-Truck Dispatching
+The project specification requires UPS to send a truck to a warehouse, wait
+for loading, and deliver the package. Our implementation extends this by
+supporting multiple trucks instead of relying on a single fixed truck. The
+system can manage several trucks and coordinate package pickup and delivery
+across them, which makes the UPS service more scalable and realistic.
+
+2. User Login and Registration
+The specification requires user accounts with user IDs and passwords. We
+implemented a complete login and registration flow so users can create
+accounts, sign in, and manage packages associated with their UPS account.
+This makes the account system usable as a real customer-facing feature
+rather than just a backend requirement.
+
+3. Detailed Package Tracking Status Updates
+The baseline requirement is that users should be able to enter a tracking
+number and see the shipment status. Our system provides more detailed
+tracking updates throughout the delivery lifecycle, such as package
+creation, truck assignment, truck traveling to warehouse, package loaded,
+out for delivery, and delivered. This gives users more visibility into the
+package’s progress instead of showing only a simple final or current
+status.
+
+4. Map-Based Address Modification
+The specification allows users to redirect a package to a different
+coordinate address before it is out for delivery. Our implementation
+improves this experience by allowing users to select the new delivery
+address directly on a map. This is more intuitive than manually typing
+coordinate values and reduces input errors.
+
+5. Automatic Email Notifications
+The basic specification does not require email support. Our UPS system
+automatically sends email notifications when important package events
+occur, such as shipment creation, status updates, address changes, or
+delivery completion. This makes the service more proactive because users do
+not need to repeatedly check the website to know what is happening with
+their package.
