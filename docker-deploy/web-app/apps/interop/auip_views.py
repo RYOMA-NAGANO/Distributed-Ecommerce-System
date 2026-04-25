@@ -9,6 +9,7 @@ from apps.core.auip_services import (
     auip_try_send_load_request_when_possible,
     auip_request_pickup,
     auip_update_destination,
+    build_ups_account_binding_response,
 )
 from apps.core.models import Package
 from apps.core.services import NoAvailableTruckError, ShipmentNotFoundError, ShipmentStateError
@@ -32,6 +33,21 @@ def _validate_item(it):
         and "description" in it
         and "quantity" in it
     )
+
+
+def _shipment_create_body(package, requested_ups_account=None):
+    body = {
+        "shipment_id": package.shipment_id,
+        "status": "created",
+        "tracking_number": package.shipment_id,
+        "world_id": int(package.world_id),
+    }
+    binding = getattr(package, "ups_account_binding", None)
+    if binding is None:
+        binding = build_ups_account_binding_response(package, requested_ups_account)
+    if binding is not None:
+        body.update(binding)
+    return body
 
 
 class ShipmentCreateView(InteropAPIView):
@@ -70,12 +86,7 @@ class ShipmentCreateView(InteropAPIView):
                     world_id=int(data["world_id"]),
                 ).first()
                 if existing:
-                    body = {
-                        "shipment_id": existing.shipment_id,
-                        "status": "created",
-                        "tracking_number": existing.shipment_id,
-                        "world_id": int(existing.world_id),
-                    }
+                    body = _shipment_create_body(existing, data.get("ups_account"))
                     save_idempotency(request, status.HTTP_201_CREATED, body)
                     return Response(body, status=status.HTTP_201_CREATED)
                 return _err(
@@ -95,12 +106,7 @@ class ShipmentCreateView(InteropAPIView):
         except Exception as exc:
             return _err("INVALID_REQUEST", str(exc))
 
-        body = {
-            "shipment_id": package.shipment_id,
-            "status": "created",
-            "tracking_number": package.shipment_id,
-            "world_id": int(package.world_id),
-        }
+        body = _shipment_create_body(package, data.get("ups_account"))
         save_idempotency(request, status.HTTP_201_CREATED, body)
         return Response(body, status=status.HTTP_201_CREATED)
 

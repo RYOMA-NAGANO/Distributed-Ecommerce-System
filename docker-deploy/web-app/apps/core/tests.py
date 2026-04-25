@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from . import auip_states as S
 from .auip_services import (
+    UPS_ACCOUNT_NOT_REGISTERED_MESSAGE,
     auip_create_shipment,
     auip_confirm_loaded,
     auip_mark_ready,
@@ -438,6 +439,63 @@ class PackageOwnershipSearchTests(TestCase):
             list(StatusUpdate.objects.filter(shipment=package).values_list("status", flat=True)),
             [S.CREATED],
         )
+
+    def test_auip_create_binds_existing_ups_account_email(self):
+        package = auip_create_shipment(
+            {
+                "shipment_id": "PKG-AUIP-ACCOUNT-1",
+                "world_id": 1,
+                "amazon_order_id": "ORDER-AUIP-ACCOUNT-1",
+                "warehouse": {"id": 1, "x": 0, "y": 0},
+                "destination": {"x": 70, "y": 80},
+                "ups_account": "  ALICE@example.com  ",
+                "items": [{"product_id": 1, "description": "box", "quantity": 1}],
+            }
+        )
+
+        self.assertEqual(package.user_id, self.alice.id)
+        self.assertEqual(package.ups_account_binding["ups_account_linked"], True)
+
+    def test_auip_create_keeps_interop_owner_for_blank_ups_account(self):
+        package = auip_create_shipment(
+            {
+                "shipment_id": "PKG-AUIP-ACCOUNT-BLANK",
+                "world_id": 1,
+                "amazon_order_id": "ORDER-AUIP-ACCOUNT-BLANK",
+                "warehouse": {"id": 1, "x": 0, "y": 0},
+                "destination": {"x": 70, "y": 80},
+                "ups_account": "   ",
+                "items": [{"product_id": 1, "description": "box", "quantity": 1}],
+            }
+        )
+
+        self.assertEqual(package.user_id, self.interop.id)
+        self.assertIsNone(package.ups_account_binding)
+
+    def test_auip_create_response_warns_for_unknown_ups_account_email(self):
+        payload = {
+            "shipment_id": "PKG-AUIP-ACCOUNT-MISSING",
+            "world_id": 1,
+            "amazon_order_id": "ORDER-AUIP-ACCOUNT-MISSING",
+            "warehouse": {"id": 1, "x": 0, "y": 0},
+            "destination": {"x": 70, "y": 80},
+            "ups_account": "missing@example.com",
+            "items": [{"product_id": 1, "description": "box", "quantity": 1}],
+        }
+
+        response = self.client.post(
+            reverse("auip-shipment-create"),
+            payload,
+            content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer mini-ups-shared-secret",
+            HTTP_IDEMPOTENCY_KEY="account-missing-1",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["ups_account_linked"], False)
+        self.assertEqual(response.json()["ups_account_message"], UPS_ACCOUNT_NOT_REGISTERED_MESSAGE)
+        package = Package.objects.get(shipment_id=payload["shipment_id"])
+        self.assertEqual(package.user_id, self.interop.id)
 
     def test_auip_destination_update_appends_history_record(self):
         package = auip_create_shipment(

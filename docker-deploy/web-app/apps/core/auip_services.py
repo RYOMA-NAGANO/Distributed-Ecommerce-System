@@ -21,6 +21,9 @@ from .services import (
 )
 
 INTEROP_USER = "_amazon_interop"
+UPS_ACCOUNT_NOT_REGISTERED_MESSAGE = (
+    "The UPS account email is not registered with UPS, so this package was not linked to a UPS account."
+)
 logger = logging.getLogger(__name__)
 _PICKUP_ELIGIBLE_TRUCK_STATUSES = (
     Truck.TruckStatus.IDLE,
@@ -52,6 +55,48 @@ def _pickup_status_ordering(qs):
 
 def get_interop_user():
     return get_user_model().objects.get(username=INTEROP_USER)
+
+
+def _normalize_ups_account(value) -> str:
+    return str(value or "").strip()
+
+
+def _resolve_package_owner(payload: dict):
+    ups_account = _normalize_ups_account(payload.get("ups_account"))
+    if not ups_account:
+        return get_interop_user(), None
+
+    user = get_user_model().objects.filter(email__iexact=ups_account).first()
+    if user is None:
+        return get_interop_user(), {
+            "ups_account_email": ups_account,
+            "ups_account_linked": False,
+            "ups_account_message": UPS_ACCOUNT_NOT_REGISTERED_MESSAGE,
+        }
+
+    return user, {
+        "ups_account_email": user.email or ups_account,
+        "ups_account_linked": True,
+    }
+
+
+def build_ups_account_binding_response(package: Package, requested_account=None) -> dict | None:
+    ups_account = _normalize_ups_account(requested_account)
+    if not ups_account:
+        return None
+
+    user_email = (getattr(package.user, "email", "") or "").strip()
+    if user_email.lower() == ups_account.lower():
+        return {
+            "ups_account_email": user_email or ups_account,
+            "ups_account_linked": True,
+        }
+
+    return {
+        "ups_account_email": ups_account,
+        "ups_account_linked": False,
+        "ups_account_message": UPS_ACCOUNT_NOT_REGISTERED_MESSAGE,
+    }
 
 
 def _get_pkg(shipment_id: str) -> Package | None:
@@ -262,7 +307,7 @@ def auip_create_shipment(payload: dict) -> Package:
 
     wh = payload["warehouse"]
     dest = payload["destination"]
-    user = get_interop_user()
+    user, ups_account_binding = _resolve_package_owner(payload)
     wp = resolve_world_package_id(shipment_id, None)
     _ensure_unique_world_package_id(
         shipment_id=shipment_id,
@@ -285,6 +330,7 @@ def auip_create_shipment(payload: dict) -> Package:
         world_package_id=wp,
         status=S.CREATED,
     )
+    package.ups_account_binding = ups_account_binding
     _record_destination_update(package, package.dest_x, package.dest_y)
     record_status_update(package, package.status)
     return package

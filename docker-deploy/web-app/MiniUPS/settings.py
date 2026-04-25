@@ -84,6 +84,9 @@ AUTH_USER_MODEL = "auth.User"
 LOGIN_REDIRECT_URL = "my-packages"
 LOGOUT_REDIRECT_URL = "home"
 
+SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "ups_sessionid")
+CSRF_COOKIE_NAME = os.getenv("CSRF_COOKIE_NAME", "ups_csrftoken")
+
 INTEROP_SHARED_SECRET = os.getenv("INTEROP_SHARED_SECRET", "mini-ups-shared-secret")
 AMAZON_BASE_URL = os.getenv("AMAZON_BASE_URL", "").rstrip("/")
 AMAZON_INTEROP_SECRET = os.getenv("AMAZON_INTEROP_SECRET", "").strip()
