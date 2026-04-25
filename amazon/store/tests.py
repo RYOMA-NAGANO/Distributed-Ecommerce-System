@@ -10,6 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "daemon"))
 
 from daemon.shipment_worker import try_issue_load
+from store.forms import CheckoutForm
 from store.models import (
     EventSource,
     Order,
@@ -168,6 +169,26 @@ class UpsAccountBindingTests(TestCase):
 
         self.assertEqual(captured_payload["ups_account"], "alice@example.com")
 
+    def test_checkout_form_defaults_ups_account_to_amazon_user_email(self):
+        form = CheckoutForm(user=self.user)
+
+        self.assertTrue(form.fields["link_ups_account"].initial)
+        self.assertEqual(form.fields["ups_account"].initial, "buyer@example.com")
+
+    def test_checkout_form_clears_ups_account_when_linking_is_off(self):
+        form = CheckoutForm(
+            {
+                "quantity": "1",
+                "destination_x": "11",
+                "destination_y": "12",
+                "ups_account": "alice@example.com",
+            },
+            user=self.user,
+        )
+
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["ups_account"], "")
+
     def test_order_detail_hides_unlinked_ups_account_warning_and_field(self):
         ShipmentEvent.objects.create(
             shipment=self.shipment,
@@ -219,6 +240,7 @@ class UpsAccountBindingTests(TestCase):
                     "quantity": "1",
                     "destination_x": "11",
                     "destination_y": "12",
+                    "link_ups_account": "on",
                     "ups_account": "alice@example.com",
                 },
                 follow=True,

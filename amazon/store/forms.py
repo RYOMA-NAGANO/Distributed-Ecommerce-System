@@ -16,12 +16,36 @@ class CheckoutForm(forms.Form):
     )
     destination_x = forms.IntegerField(initial=9)
     destination_y = forms.IntegerField(initial=8)
-    ups_account = forms.CharField(
+    link_ups_account = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Link this package to my UPS account",
+    )
+    ups_account = forms.EmailField(
         required=False,
         max_length=128,
-        label="UPS Account Name (optional)",
-        widget=forms.TextInput(attrs={"placeholder": "Leave blank to skip"}),
+        label="UPS Account Email",
+        widget=forms.EmailInput(attrs={"placeholder": "name@example.com"}),
     )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.is_bound and user is not None:
+            email = (getattr(user, "email", "") or "").strip()
+            if email:
+                self.fields["ups_account"].initial = email
+
+    def clean(self):
+        data = super().clean()
+        if not data.get("link_ups_account"):
+            data["ups_account"] = ""
+            return data
+        if not (data.get("ups_account") or "").strip():
+            self.add_error(
+                "ups_account",
+                "Enter a UPS account email or turn off UPS account linking.",
+            )
+        return data
 
 
 class UserSignupForm(forms.ModelForm):

@@ -163,7 +163,7 @@ def product_detail(request, product_id):
     if request.method == "POST":
         if not request.user.is_authenticated:
             return redirect(f"{reverse_lazy('login')}?next={request.path}")
-        form = CheckoutForm(request.POST)
+        form = CheckoutForm(request.POST, user=request.user)
         if form.is_valid():
             try:
                 order, shipment = create_order_from_product(
@@ -182,7 +182,7 @@ def product_detail(request, product_id):
                 logger.exception("Failed to create order for product %s", product_id)
                 form.add_error(None, f"Could not create order: {exc}")
     else:
-        form = CheckoutForm()
+        form = CheckoutForm(user=request.user if request.user.is_authenticated else None)
 
     context = {
         "product": product,

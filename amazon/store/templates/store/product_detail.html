@@ -81,8 +81,14 @@
             </div>
 
             <div class="field-group">
-                <label for="{{ form.ups_account.id_for_label }}">UPS Account Name <span class="muted">(optional)</span></label>
+                <label for="{{ form.ups_account.id_for_label }}" style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                    <span>UPS Account Email</span>
+                    {{ form.link_ups_account }}
+                </label>
                 {{ form.ups_account }}
+                {% for error in form.link_ups_account.errors %}
+                <div style="color: #b12704; font-size: 0.9rem;">{{ error }}</div>
+                {% endfor %}
                 {% for error in form.ups_account.errors %}
                 <div style="color: #b12704; font-size: 0.9rem;">{{ error }}</div>
                 {% endfor %}
@@ -90,6 +96,36 @@
 
             <button class="btn btn-primary" type="submit">Place Order</button>
         </form>
+        <script>
+            (() => {
+                const linkToggle = document.getElementById("{{ form.link_ups_account.id_for_label }}");
+                const upsAccountInput = document.getElementById("{{ form.ups_account.id_for_label }}");
+                const defaultUpsEmail = "{{ request.user.email|default:''|escapejs }}";
+                if (!linkToggle || !upsAccountInput) {
+                    return;
+                }
+                linkToggle.style.width = "14px";
+                linkToggle.style.height = "14px";
+                linkToggle.style.flex = "0 0 auto";
+
+                const syncUpsAccountField = () => {
+                    if (linkToggle.checked) {
+                        upsAccountInput.disabled = false;
+                        upsAccountInput.required = true;
+                        if (!upsAccountInput.value.trim()) {
+                            upsAccountInput.value = defaultUpsEmail;
+                        }
+                    } else {
+                        upsAccountInput.value = "";
+                        upsAccountInput.required = false;
+                        upsAccountInput.disabled = true;
+                    }
+                };
+
+                linkToggle.addEventListener("change", syncUpsAccountField);
+                syncUpsAccountField();
+            })();
+        </script>
         {% endif %}
     </aside>
 </section>
