@@ -71,6 +71,18 @@
             <label>Destination</label>
             <div>{{ shipment.destination }}</div>
         </div>
+
+        {% if order.ups_account %}
+        <div class="field-group">
+            <label>UPS Account</label>
+            <div>{{ order.ups_account }}</div>
+        </div>
+        {% endif %}
+
+        <div class="field-group">
+            <label>Tracking Number</label>
+            <div>{{ shipment.tracking_number }}</div>
+        </div>
     </aside>
 </section>
 

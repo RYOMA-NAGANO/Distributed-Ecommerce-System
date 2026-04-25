@@ -16,6 +16,12 @@ class CheckoutForm(forms.Form):
     )
     destination_x = forms.IntegerField(initial=9)
     destination_y = forms.IntegerField(initial=8)
+    ups_account = forms.CharField(
+        required=False,
+        max_length=128,
+        label="UPS Account Name (optional)",
+        widget=forms.TextInput(attrs={"placeholder": "Leave blank to skip"}),
+    )
 
 
 class UserSignupForm(forms.ModelForm):
