@@ -14,6 +14,7 @@ from store.models import EventSource, ShipmentEvent, Warehouse
 from store.services.ups_client import (
     UpsClientError,
     fetch_world_id,
+    notify_load_failed,
     notify_loaded,
     notify_ready,
 )
@@ -154,7 +155,7 @@ def main():
         time.sleep(10)
 
 
-def ups_notify(event: str, shipment_id: str) -> None:
+def ups_notify(event: str, shipment_id: str, payload: dict | None = None) -> None:
     from store.models import Shipment
     try:
         shipment = Shipment.objects.select_related("order", "warehouse").prefetch_related(
@@ -187,6 +188,20 @@ def ups_notify(event: str, shipment_id: str) -> None:
                 payload=response,
             )
             logger.info("notified UPS: loaded shipment=%s", shipment_id)
+        elif event == "load_failed":
+            response = notify_load_failed(
+                shipment,
+                reason=(payload or {}).get("detail", ""),
+            )
+            ShipmentEvent.objects.create(
+                shipment=shipment,
+                source=EventSource.SYSTEM,
+                event_type="ups_notify_load_failed",
+                world_id=shipment.world_id,
+                status_snapshot=shipment.status,
+                payload=response,
+            )
+            logger.info("notified UPS: load failed shipment=%s", shipment_id)
         else:
             logger.warning("ups_notify: unknown event %s", event)
     except UpsClientError as exc:

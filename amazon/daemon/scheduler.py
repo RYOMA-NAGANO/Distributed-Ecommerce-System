@@ -132,7 +132,12 @@ class Scheduler:
                 failed_load["shipment_id"] if failed_load is not None else None
             )
             if failed_load_shipment_id:
-                self._handle_failed_load(failed_load_shipment_id, err.err)
+                self._handle_failed_load(
+                    failed_load_shipment_id,
+                    err.err,
+                    reset_truck_assignment=True,
+                    notify_ups=True,
+                )
 
             logger.error("World error seqnum=%d: %s", err.originseqnum, err.err)
 
@@ -287,7 +292,14 @@ class Scheduler:
         cmd.acks.extend(unique_seqnums)
         self._world.send(cmd)
 
-    def _handle_failed_load(self, shipment_id: str, error_message: str):
+    def _handle_failed_load(
+        self,
+        shipment_id: str,
+        error_message: str,
+        *,
+        reset_truck_assignment: bool = False,
+        notify_ups: bool = False,
+    ):
         try:
             shipments = Shipment.objects.filter(shipment_id=shipment_id)
             if self._world_id is not None:
@@ -297,12 +309,18 @@ class Scheduler:
             return
 
         if shipment.status == ShipmentStatus.LOADING:
-            shipment.status = (
-                ShipmentStatus.TRUCK_ARRIVED
-                if shipment.truck_id is not None
-                else ShipmentStatus.PACKED
-            )
-            shipment.save(update_fields=["status", "updated_at"])
+            update_fields = ["status", "updated_at"]
+            if reset_truck_assignment:
+                shipment.status = ShipmentStatus.PACKED
+                shipment.truck_id = None
+                update_fields.append("truck_id")
+            else:
+                shipment.status = (
+                    ShipmentStatus.TRUCK_ARRIVED
+                    if shipment.truck_id is not None
+                    else ShipmentStatus.PACKED
+                )
+            shipment.save(update_fields=update_fields)
 
         ShipmentEvent.objects.create(
             shipment=shipment,
@@ -313,3 +331,5 @@ class Scheduler:
             payload={"detail": error_message},
             error_message=error_message,
         )
+        if notify_ups:
+            self._ups_notify("load_failed", shipment_id, {"detail": error_message})

@@ -125,6 +125,17 @@ def try_issue_load(shipment_id: str, world_client, ack_mgr, pending_loads: dict)
             return False
         warehouse_id = locked.warehouse.warehouse_id
         truck_id = locked.truck_id
+        for pending in pending_loads.values():
+            if (
+                pending.get("truck_id") == truck_id
+                and pending.get("shipment_id") != shipment_id
+            ):
+                logger.info(
+                    "defer load for shipment %s because truck %s already has an in-flight load",
+                    shipment_id,
+                    truck_id,
+                )
+                return False
         if locked.status != ShipmentStatus.LOADING:
             locked.status = ShipmentStatus.LOADING
             locked.save(update_fields=["status", "updated_at"])
@@ -142,6 +153,7 @@ def try_issue_load(shipment_id: str, world_client, ack_mgr, pending_loads: dict)
     ack_mgr.register(seqnum, cmd)
     pending_loads[seqnum] = {
         "shipment_id": shipment_id,
+        "truck_id": truck_id,
         "issued_at": time.monotonic(),
     }
     world_client.send(cmd)

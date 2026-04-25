@@ -95,6 +95,21 @@ def notify_loaded(shipment: Shipment) -> dict:
     )
 
 
+def notify_load_failed(shipment: Shipment, reason: str = "") -> dict:
+    payload = {
+        "truck_id": shipment.truck_id,
+        "warehouse_id": shipment.warehouse.warehouse_id,
+        "world_id": shipment.world_id,
+        "reason": reason or "World rejected the load command.",
+    }
+    return _post_json(
+        f"/shipments/{shipment.shipment_id}/load-failed",
+        payload,
+        shipment=shipment,
+        expected_statuses={200},
+    )
+
+
 def _post_json(path: str, payload: dict, *, shipment: Shipment | None, expected_statuses: set[int]) -> dict:
     ups_base_url = (getattr(settings, "UPS_BASE_URL", "") or "").rstrip("/")
     ups_interop_secret = (getattr(settings, "UPS_INTEROP_SECRET", "") or "").strip()

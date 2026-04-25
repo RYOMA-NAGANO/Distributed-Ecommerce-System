@@ -10,6 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "daemon"))
 
 from daemon.shipment_worker import try_issue_load
+from daemon.scheduler import Scheduler
 from store.forms import CheckoutForm
 from store.models import (
     EventSource,
@@ -100,6 +101,7 @@ class ShipmentWorkerLoadRetryTests(TestCase):
         self.assertEqual(shipment.status, ShipmentStatus.LOADING)
         self.assertIn(77, pending_loads)
         self.assertEqual(pending_loads[77]["shipment_id"], shipment.shipment_id)
+        self.assertEqual(pending_loads[77]["truck_id"], shipment.truck_id)
         self.assertEqual(len(ack_mgr.registered), 1)
         self.assertEqual(len(world_client.sent), 1)
 
@@ -110,6 +112,87 @@ class ShipmentWorkerLoadRetryTests(TestCase):
         self.assertEqual(load.truckid, shipment.truck_id)
         self.assertEqual(load.shipid, int(shipment.shipment_id))
         self.assertEqual(load.seqnum, 77)
+
+    def test_try_issue_load_defers_second_package_on_same_truck(self):
+        first = Shipment.objects.create(
+            order=self.order,
+            warehouse=self.warehouse,
+            world_id=1,
+            shipment_id="10011",
+            tracking_number="10011",
+            status=ShipmentStatus.TRUCK_ARRIVED,
+            truck_id=7,
+            destination_x=11,
+            destination_y=12,
+        )
+        second = Shipment.objects.create(
+            order=self.order,
+            warehouse=self.warehouse,
+            world_id=1,
+            shipment_id="10012",
+            tracking_number="10012",
+            status=ShipmentStatus.TRUCK_ARRIVED,
+            truck_id=7,
+            destination_x=13,
+            destination_y=14,
+        )
+        world_client = _WorldClientStub()
+        ack_mgr = _AckStub(seqnum=88)
+        pending_loads = {}
+
+        first_issued = try_issue_load(first.shipment_id, world_client, ack_mgr, pending_loads)
+        second_issued = try_issue_load(second.shipment_id, world_client, ack_mgr, pending_loads)
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertTrue(first_issued)
+        self.assertFalse(second_issued)
+        self.assertEqual(first.status, ShipmentStatus.LOADING)
+        self.assertEqual(second.status, ShipmentStatus.TRUCK_ARRIVED)
+        self.assertEqual(len(world_client.sent), 1)
+
+    def test_world_load_error_resets_truck_and_notifies_ups(self):
+        shipment = Shipment.objects.create(
+            order=self.order,
+            warehouse=self.warehouse,
+            world_id=1,
+            shipment_id="10013",
+            tracking_number="10013",
+            status=ShipmentStatus.LOADING,
+            truck_id=7,
+            destination_x=15,
+            destination_y=16,
+        )
+        notifications = []
+        scheduler = Scheduler(
+            world_client=_WorldClientStub(),
+            ack_mgr=_AckStub(seqnum=99),
+            ups_notify=lambda event, shipment_id, payload=None: notifications.append(
+                (event, shipment_id, payload)
+            ),
+            world_id=1,
+        )
+
+        scheduler._handle_failed_load(
+            shipment.shipment_id,
+            "truck is not at the warehouse",
+            reset_truck_assignment=True,
+            notify_ups=True,
+        )
+
+        shipment.refresh_from_db()
+        self.assertEqual(shipment.status, ShipmentStatus.PACKED)
+        self.assertIsNone(shipment.truck_id)
+        self.assertEqual(
+            notifications,
+            [
+                (
+                    "load_failed",
+                    shipment.shipment_id,
+                    {"detail": "truck is not at the warehouse"},
+                )
+            ],
+        )
 
 
 class UpsAccountBindingTests(TestCase):

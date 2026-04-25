@@ -10,6 +10,7 @@ from .auip_services import (
     UPS_ACCOUNT_NOT_REGISTERED_MESSAGE,
     auip_create_shipment,
     auip_confirm_loaded,
+    auip_mark_load_failed,
     auip_mark_ready,
     auip_recover_stale_delivery_requests,
     auip_recover_stuck_loading,
@@ -664,6 +665,87 @@ class PackageOwnershipSearchTests(TestCase):
         self.assertEqual(package.status, S.LOADING)
         notify_mock.assert_called_once()
 
+    def test_try_send_load_request_defers_when_same_truck_is_loading(self):
+        truck = Truck.objects.create(
+            truck_id=183,
+            truck_status=Truck.TruckStatus.ARRIVE_WAREHOUSE,
+        )
+        loading = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-LOAD-IN-FLIGHT",
+            status=S.LOADING,
+            world_package_id=1002,
+        )
+        waiting = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-LOAD-WAITING",
+            status=S.TRUCK_ARRIVED,
+            world_package_id=1003,
+        )
+
+        with patch("apps.core.auip_services.amazon_client.notify_load_request") as notify_mock:
+            sent = auip_try_send_load_request_when_possible(waiting.shipment_id)
+
+        loading.refresh_from_db()
+        waiting.refresh_from_db()
+        self.assertFalse(sent)
+        self.assertEqual(loading.status, S.LOADING)
+        self.assertEqual(waiting.status, S.TRUCK_ARRIVED)
+        notify_mock.assert_not_called()
+
+    def test_mark_load_failed_requeues_package_for_pickup(self):
+        truck = Truck.objects.create(
+            truck_id=184,
+            truck_status=Truck.TruckStatus.ARRIVE_WAREHOUSE,
+        )
+        package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-LOAD-FAILED",
+            status=S.LOADING,
+            world_package_id=1004,
+        )
+
+        auip_mark_load_failed(package.shipment_id, package.warehouse_id, package.world_id)
+
+        package.refresh_from_db()
+        self.assertEqual(package.status, S.PACKED)
+        self.assertIsNone(package.truck_id)
+        self.assertIsNone(package.pickup_seqnum)
+        self.assertEqual(
+            list(StatusUpdate.objects.filter(shipment=package).values_list("status", flat=True)),
+            [S.PACKED],
+        )
+
+    def test_load_failed_api_requeues_package_for_pickup(self):
+        truck = Truck.objects.create(
+            truck_id=185,
+            truck_status=Truck.TruckStatus.ARRIVE_WAREHOUSE,
+        )
+        package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-LOAD-FAILED-API",
+            status=S.LOADING,
+            world_package_id=1005,
+        )
+
+        response = self.client.post(
+            reverse("auip-shipment-load-failed"),
+            {
+                "truck_id": truck.truck_id,
+                "warehouse_id": package.warehouse_id,
+                "world_id": package.world_id,
+                "reason": "truck is not at the warehouse",
+            },
+            content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer mini-ups-shared-secret",
+            HTTP_IDEMPOTENCY_KEY="load-failed-api-1",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], S.PACKED)
+        package.refresh_from_db()
+        self.assertIsNone(package.truck_id)
+
     def test_destination_update_emails_owner(self):
         package = self.create_owned_package(status=S.PACKED)
 
@@ -905,6 +987,31 @@ class PackageOwnershipSearchTests(TestCase):
             ),
             [S.PACKED],
         )
+
+    def test_recover_stuck_loading_requeues_when_truck_at_different_warehouse(self):
+        truck = Truck.objects.create(
+            truck_id=186,
+            truck_status=Truck.TruckStatus.ARRIVE_WAREHOUSE,
+        )
+        package = self.create_owned_package(
+            truck=truck,
+            shipment_id="PKG-STUCK-DIFFERENT-WH",
+            status=S.LOADING,
+            world_package_id=1006,
+        )
+        PositionUpdate.objects.create(
+            shipment=package,
+            x=package.warehouse_x + 10,
+            y=package.warehouse_y + 10,
+            update_time=20,
+        )
+
+        updated = auip_recover_stuck_loading(world_id=package.world_id)
+
+        self.assertEqual(updated, 1)
+        package.refresh_from_db()
+        self.assertEqual(package.status, S.PACKED)
+        self.assertIsNone(package.truck_id)
 
     def test_recover_stale_delivery_requeues_when_truck_is_idle(self):
         truck = Truck.objects.create(

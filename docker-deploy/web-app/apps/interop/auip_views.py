@@ -5,6 +5,7 @@ from apps.core.auip_services import (
     auip_confirm_loaded,
     auip_create_shipment,
     auip_get_shipment_dict,
+    auip_mark_load_failed,
     auip_mark_ready,
     auip_try_send_load_request_when_possible,
     auip_request_pickup,
@@ -203,6 +204,37 @@ class ShipmentLoadedView(InteropAPIView):
         body = {
             "shipment_id": package.shipment_id,
             "status": "loaded",
+            "world_id": int(package.world_id),
+        }
+        save_idempotency(request, status.HTTP_200_OK, body)
+        return Response(body, status=status.HTTP_200_OK)
+
+
+class ShipmentLoadFailedView(InteropAPIView):
+    def post(self, request, shipment_id):
+        replay = check_idempotency(request)
+        if replay is not None:
+            return replay
+
+        data = request.data
+        for key in ("warehouse_id", "world_id"):
+            if key not in data:
+                return _err("INVALID_REQUEST", f"Missing field: {key}", shipment_id)
+
+        try:
+            package = auip_mark_load_failed(
+                shipment_id,
+                int(data["warehouse_id"]),
+                int(data["world_id"]),
+            )
+        except ShipmentNotFoundError:
+            return _err("NOT_FOUND", "Unknown shipment_id.", shipment_id, 404)
+        except ShipmentStateError as exc:
+            return _err("INVALID_STATE", str(exc), shipment_id, 409)
+
+        body = {
+            "shipment_id": package.shipment_id,
+            "status": package.status,
             "world_id": int(package.world_id),
         }
         save_idempotency(request, status.HTTP_200_OK, body)

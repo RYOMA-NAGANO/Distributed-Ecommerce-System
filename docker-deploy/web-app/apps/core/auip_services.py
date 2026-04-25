@@ -448,6 +448,16 @@ def auip_try_send_load_request_when_possible(shipment_id: str) -> bool:
         Truck.TruckStatus.LOADING,
     ):
         return False
+    if (
+        Package.objects.filter(
+            world_id=int(package.world_id),
+            truck_id=int(package.truck_id),
+            status=S.LOADING,
+        )
+        .exclude(shipment_id=package.shipment_id)
+        .exists()
+    ):
+        return False
 
     auip_try_send_load_request_and_loading(package)
     refreshed = Package.objects.only("status").filter(shipment_id=shipment_id).first()
@@ -591,11 +601,24 @@ def auip_recover_stuck_loading(limit: int = 20, world_id: int | None = None) -> 
                 .values_list("truck_status", flat=True)
                 .first()
             )
+        latest_position = (
+            PositionUpdate.objects.filter(shipment=package)
+            .order_by("-update_time", "-id")
+            .values("x", "y")
+            .first()
+        )
+        truck_still_at_package_warehouse = (
+            latest_position is None
+            or (
+                int(latest_position["x"]) == int(package.warehouse_x)
+                and int(latest_position["y"]) == int(package.warehouse_y)
+            )
+        )
 
         if truck_status in (
             Truck.TruckStatus.ARRIVE_WAREHOUSE,
             Truck.TruckStatus.LOADING,
-        ):
+        ) and truck_still_at_package_warehouse:
             package.status = S.TRUCK_ARRIVED
             update_fields.append("status")
         else:
@@ -716,6 +739,29 @@ def auip_confirm_loaded(shipment_id: str, truck_id: int, warehouse_id: int, worl
     if p.status != previous_status:
         record_status_update(p, p.status)
         _notify_on_commit(notify_package_loaded, p.shipment_id)
+    return p
+
+
+@transaction.atomic
+def auip_mark_load_failed(shipment_id: str, warehouse_id: int, world_id: int) -> Package:
+    p = Package.objects.select_for_update().filter(shipment_id=shipment_id).first()
+    if p is None:
+        raise ShipmentNotFoundError("Unknown shipment_id.")
+    if int(p.world_id) != int(world_id):
+        raise ShipmentStateError("world_id mismatch.")
+    if int(warehouse_id) != int(p.warehouse_id):
+        raise ShipmentStateError("warehouse_id mismatch.")
+    if p.status in (S.LOADED, S.OUT_FOR_DELIVERY, S.DELIVERED):
+        return p
+
+    previous_status = p.status
+    p.status = S.PACKED
+    p.truck = None
+    p.pickup_seqnum = None
+    p.delivery_seqnum = None
+    p.save(update_fields=["status", "truck", "pickup_seqnum", "delivery_seqnum"])
+    if p.status != previous_status:
+        record_status_update(p, p.status)
     return p
 
 
