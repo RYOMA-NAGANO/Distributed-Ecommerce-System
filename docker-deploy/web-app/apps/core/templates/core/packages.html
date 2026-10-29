@@ -26,7 +26,7 @@
             <div class="ups-package-card-head">
               <div class="ups-package-summary">
                 <strong>{{ package.shipment_id }}</strong>
-                <span class="ups-status">{{ package.status_label }}</span>
+                <span class="ups-status ups-status-{{ package.status }}">{{ package.status_label }}</span>
                 {% if package.truck %}
                   <span class="ups-muted">Truck #{{ package.truck.truck_id }}</span>
                 {% endif %}
@@ -48,6 +48,10 @@
                   >Edit destination</button>
                 {% endif %}
                 {% if package.user_id == request.user.id %}
+                  <a
+                    class="ups-btn ups-btn-outline"
+                    href="{% url 'package-history' package.shipment_id %}"
+                  >View history</a>
                   <button
                     type="button"
                     class="ups-btn ups-btn-primary ups-details-view"

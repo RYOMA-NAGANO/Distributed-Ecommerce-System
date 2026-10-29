@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.core.services import NoAvailableTruckError, create_package_with_assigned_truck
+from apps.core.auip_services import create_package_with_assigned_truck
+from apps.core.services import NoAvailableTruckError
 
 
 class Command(BaseCommand):

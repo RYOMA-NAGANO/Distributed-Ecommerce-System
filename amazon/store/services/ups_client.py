@@ -1,6 +1,5 @@
 import hashlib
 import json
-import uuid
 from urllib import error, request
 from urllib.parse import urljoin
 
@@ -117,19 +116,28 @@ def _post_json(path: str, payload: dict, *, shipment: Shipment | None, expected_
     if not ups_base_url:
         raise UpsClientError("UPS_BASE_URL is not configured")
 
-    body = json.dumps(payload).encode("utf-8")
+    # Serialize deterministically so the same logical request always hashes the
+    # same way, regardless of dict ordering.
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     body_hash = hashlib.sha256(body).hexdigest()
-    idempotency_key = str(uuid.uuid4())
+    # Stable Idempotency-Key per logical (method, path, body). Retries of the
+    # same request now reuse the key so UPS can deduplicate them, instead of
+    # minting a fresh uuid on every attempt.
+    idempotency_key = hashlib.sha256(
+        f"POST:{path}:{body_hash}".encode("utf-8")
+    ).hexdigest()
 
-    record = HttpIdempotencyRecord.objects.create(
+    record, _created = HttpIdempotencyRecord.objects.get_or_create(
         direction=HttpDirection.OUTBOUND,
-        peer="ups",
         method="POST",
         path=path,
         idempotency_key=idempotency_key,
-        body_hash=body_hash,
-        shipment=shipment,
+        defaults={"peer": "ups", "body_hash": body_hash, "shipment": shipment},
     )
+    # If a previous attempt already succeeded, replay the stored response
+    # instead of re-sending the command (sender-side idempotency).
+    if record.response_status in expected_statuses and record.response_body is not None:
+        return record.response_body
 
     headers = {
         "Content-Type": "application/json",

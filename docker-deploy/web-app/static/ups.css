@@ -1089,3 +1089,114 @@ table.ups-table tr:nth-child(even) {
     justify-content: space-between;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Status pill color variants (shared by shipment list + history page)        */
+/* -------------------------------------------------------------------------- */
+.ups-status-delivered {
+  background: #d8f3dc;
+  color: #1b4332;
+}
+.ups-status-out_for_delivery,
+.ups-status-loaded {
+  background: #d6e4ff;
+  color: #10316b;
+}
+.ups-status-loading,
+.ups-status-truck_arrived,
+.ups-status-truck_en_route {
+  background: #fff1c2;
+  color: #7a5900;
+}
+.ups-status-canceled,
+.ups-status-delivery_failed {
+  background: #ffd6d6;
+  color: #7a1212;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Package history timeline page                                              */
+/* -------------------------------------------------------------------------- */
+.ups-history-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.ups-history-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 0.5rem;
+  position: relative;
+}
+
+.ups-history-item {
+  position: relative;
+  padding: 0 0 1.1rem 1.6rem;
+  border-left: 2px solid #ead8a4;
+}
+
+.ups-history-item:last-child {
+  border-left-color: transparent;
+  padding-bottom: 0;
+}
+
+.ups-history-dot {
+  position: absolute;
+  left: -0.5rem;
+  top: 0.15rem;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 999px;
+  background: var(--ups-gold);
+  border: 2px solid var(--ups-white);
+  box-shadow: 0 0 0 1px #ead8a4;
+}
+
+.ups-history-position .ups-history-dot {
+  background: #9ab7ff;
+}
+.ups-history-destination .ups-history-dot {
+  background: #ffb347;
+}
+.ups-history-status-delivered .ups-history-dot {
+  background: #40916c;
+}
+.ups-history-status-out_for_delivery .ups-history-dot,
+.ups-history-status-loaded .ups-history-dot {
+  background: #3a6fd8;
+}
+.ups-history-status-canceled .ups-history-dot,
+.ups-history-status-delivery_failed .ups-history-dot {
+  background: #d64545;
+}
+
+.ups-history-body {
+  background: var(--ups-white);
+  border: 1px solid #ead8a4;
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  box-shadow: 0 1px 2px rgba(53, 28, 21, 0.06);
+}
+
+.ups-history-title {
+  color: var(--ups-brown);
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+
+.ups-history-detail {
+  color: var(--ups-text);
+  font-size: 0.86rem;
+  margin-top: 0.15rem;
+}
+
+.ups-history-when {
+  display: block;
+  color: var(--ups-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  margin-top: 0.3rem;
+}

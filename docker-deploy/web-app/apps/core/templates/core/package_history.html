@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}History · {{ package.shipment_id }} · MiniUPS{% endblock %}
+
+{% block content %}
+<div class="ups-card" style="padding:0;overflow:hidden;">
+  <div class="ups-track-header">
+    <div>
+      <h1 style="margin:0;font-size:1.15rem;">Package history</h1>
+      <p class="ups-muted" style="margin:0.25rem 0 0;">{{ package.shipment_id }}</p>
+    </div>
+    <a class="ups-btn ups-btn-outline" href="{% url 'my-packages' %}">Back to shipments</a>
+  </div>
+
+  <div style="padding:1.25rem;">
+    <div class="ups-history-summary">
+      <span class="ups-status ups-status-{{ package.status }}">{{ status_label }}</span>
+      {% if package.truck %}
+        <span class="ups-muted">Truck #{{ package.truck.truck_id }}</span>
+      {% endif %}
+      <span class="ups-muted">Destination {{ destination_display }}</span>
+      <span class="ups-muted">{{ event_count }} event{{ event_count|pluralize }}</span>
+    </div>
+
+    {% if events %}
+      <ol class="ups-history-timeline">
+        {% for event in events %}
+          <li class="ups-history-item ups-history-{{ event.category }}{% if event.status %} ups-history-status-{{ event.status }}{% endif %}">
+            <span class="ups-history-dot" aria-hidden="true"></span>
+            <div class="ups-history-body">
+              <div class="ups-history-title">{{ event.title }}</div>
+              {% if event.detail %}
+                <div class="ups-history-detail">{{ event.detail }}</div>
+              {% endif %}
+              <time class="ups-history-when">{{ event.when }}</time>
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p class="ups-muted">No history has been recorded for this package yet.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

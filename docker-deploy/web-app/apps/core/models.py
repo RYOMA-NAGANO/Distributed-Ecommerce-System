@@ -60,7 +60,7 @@ class Package(models.Model):
     delivery_seqnum = models.BigIntegerField(null=True, blank=True, db_index=True)
 
     # AUIP / §2.7 lifecycle strings (created, truck_en_route, …)
-    status = models.CharField(max_length=32, default="created")
+    status = models.CharField(max_length=32, default="created", db_index=True)
 
     class Meta:
         db_table = "packages"
@@ -70,6 +70,13 @@ class Package(models.Model):
                 condition=models.Q(world_package_id__isnull=False),
                 name="uniq_pkg_world_worldpkg_notnull",
             )
+        ]
+        indexes = [
+            # Hot path for the per-user package list (filter user + status).
+            models.Index(fields=["user", "status"], name="pkg_user_status_idx"),
+            # Hot path for daemon recovery/reconcile sweeps that filter by
+            # world_id + status.
+            models.Index(fields=["world_id", "status"], name="pkg_world_status_idx"),
         ]
 
     def __str__(self):

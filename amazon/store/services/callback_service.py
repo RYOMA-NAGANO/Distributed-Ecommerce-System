@@ -20,6 +20,38 @@ class CallbackResult:
     world_id: int
 
 
+# Monotonic ordering of the forward delivery lifecycle. Used to reject
+# out-of-order UPS callbacks that would move a shipment backwards. Statuses
+# that are not part of the linear flow (e.g. UPDATED, CANCELED, DELIVERY_FAILED)
+# are intentionally absent and skip the regression check.
+_LIFECYCLE_RANK = {
+    ShipmentStatus.CREATED: 0,
+    ShipmentStatus.PACKING: 1,
+    ShipmentStatus.PACKED: 2,
+    ShipmentStatus.TRUCK_EN_ROUTE: 3,
+    ShipmentStatus.TRUCK_ARRIVED: 4,
+    ShipmentStatus.LOADING: 5,
+    ShipmentStatus.LOADED: 6,
+    ShipmentStatus.OUT_FOR_DELIVERY: 7,
+    ShipmentStatus.DELIVERED: 8,
+}
+
+
+def _reject_if_regression(current_status: str, target_status: str) -> None:
+    """Raise CallbackConflict if moving current_status -> target_status would
+    regress the shipment to an earlier lifecycle stage (an out-of-order update).
+    Equal ranks are allowed so legitimate retries stay idempotent.
+    """
+    current_rank = _LIFECYCLE_RANK.get(current_status)
+    target_rank = _LIFECYCLE_RANK.get(target_status)
+    if current_rank is None or target_rank is None:
+        return
+    if current_rank > target_rank:
+        raise CallbackConflict(
+            f"out-of-order callback: cannot move {current_status} back to {target_status}"
+        )
+
+
 def handle_truck_arrived(payload: dict) -> CallbackResult:
     shipment = _get_shipment(payload)
     warehouse_id = _required_int(payload, "warehouse_id")
@@ -27,16 +59,16 @@ def handle_truck_arrived(payload: dict) -> CallbackResult:
 
     if shipment.warehouse.warehouse_id != warehouse_id:
         raise CallbackConflict("warehouse_id does not match shipment")
-    if shipment.status in (
-        ShipmentStatus.LOADED,
-        ShipmentStatus.OUT_FOR_DELIVERY,
-        ShipmentStatus.DELIVERED,
-        ShipmentStatus.CANCELED,
-    ):
+    if shipment.status == ShipmentStatus.CANCELED:
         raise CallbackConflict("shipment can no longer accept truck arrival")
 
     with transaction.atomic():
         locked = Shipment.objects.select_for_update().get(pk=shipment.pk)
+        if locked.status == ShipmentStatus.CANCELED:
+            raise CallbackConflict("shipment can no longer accept truck arrival")
+        # Reject a late truck_arrived once the shipment has already progressed
+        # to loading or beyond (previously such callbacks were silently kept).
+        _reject_if_regression(locked.status, ShipmentStatus.TRUCK_ARRIVED)
         if locked.truck_id is not None and locked.truck_id != truck_id:
             raise CallbackConflict("truck_id does not match existing shipment truck")
 

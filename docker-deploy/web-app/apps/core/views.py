@@ -1,11 +1,12 @@
 import json
+from datetime import datetime
 
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Q
-from django.http import HttpResponseForbidden
+from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.views import View
 from django.views.generic import ListView
@@ -30,6 +31,64 @@ def _status_label(status: str) -> str:
     if normalized in labels:
         return labels[normalized]
     return normalized.replace("_", " ").title()
+
+
+def _format_epoch(epoch) -> str:
+    """Render an epoch-second timestamp as a human-readable local time."""
+    try:
+        ts = int(epoch)
+    except (TypeError, ValueError):
+        return "\u2014"
+    if ts <= 0:
+        return "\u2014"
+    return datetime.fromtimestamp(ts).strftime("%b %d, %Y \u00b7 %I:%M:%S %p")
+
+
+def _build_package_history(package):
+    """Merge status, destination and position updates into one chronological
+    timeline (oldest first) for the package history page."""
+    rows = []
+
+    for update in package.status_updates.all():
+        rows.append(
+            {
+                "sort": (int(update.update_time), 2, int(update.id)),
+                "time": update.update_time,
+                "category": "status",
+                "status": str(update.status),
+                "title": f"Status: {_status_label(update.status)}",
+                "detail": "",
+            }
+        )
+
+    for update in package.destination_updates.all():
+        rows.append(
+            {
+                "sort": (int(update.update_time), 1, int(update.id)),
+                "time": update.update_time,
+                "category": "destination",
+                "status": "",
+                "title": "Destination updated",
+                "detail": f"New destination ({update.x}, {update.y})",
+            }
+        )
+
+    for update in package.position_updates.all():
+        rows.append(
+            {
+                "sort": (int(update.update_time), 0, int(update.id)),
+                "time": update.update_time,
+                "category": "position",
+                "status": "",
+                "title": "Truck position reported",
+                "detail": f"At ({update.x}, {update.y})",
+            }
+        )
+
+    rows.sort(key=lambda row: row["sort"])
+    for row in rows:
+        row["when"] = _format_epoch(row["time"])
+    return rows
 
 
 def _build_map_bounds(points: list[tuple[int, int]]) -> dict[str, int]:
@@ -247,6 +306,33 @@ class PackageListView(LoginRequiredMixin, ListView):
             package.map_max_x = bounds["max_x"]
             package.map_min_y = bounds["min_y"]
             package.map_max_y = bounds["max_y"]
+
+
+class PackageHistoryView(LoginRequiredMixin, View):
+    """Dedicated, shareable page listing the full event history of one package
+    owned by the signed-in user, with timestamps."""
+
+    template_name = "core/package_history.html"
+
+    def get(self, request, shipment_id):
+        package = (
+            Package.objects.select_related("truck", "user")
+            .prefetch_related("status_updates", "destination_updates", "position_updates")
+            .filter(shipment_id=shipment_id, user=request.user)
+            .first()
+        )
+        if package is None:
+            raise Http404("Package not found")
+
+        events = _build_package_history(package)
+        context = {
+            "package": package,
+            "status_label": _status_label(package.status),
+            "events": events,
+            "event_count": len(events),
+            "destination_display": f"({package.dest_x}, {package.dest_y})",
+        }
+        return render(request, self.template_name, context)
 
 
 class PackageDestinationUpdateView(LoginRequiredMixin, View):
